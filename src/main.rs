@@ -16,6 +16,14 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Store the bot token (and optionally chat id)
+    Auth {
+        /// Bot token from @BotFather (prompted for if omitted)
+        token: Option<String>,
+        /// Chat id to send to (auto-discovered on first send if omitted)
+        #[arg(long)]
+        chat_id: Option<String>,
+    },
     /// Send a Telegram message
     Send {
         /// Message text (words are joined with spaces)
@@ -91,6 +99,60 @@ fn send(message: &str) -> Result<String, String> {
         return Err(format!("Telegram error: {body}"));
     }
     Ok(format!("sent to chat {chat}"))
+}
+
+fn auth(token: Option<String>, chat_id: Option<String>) -> Result<(), String> {
+    let token = match token {
+        Some(t) => t,
+        None => {
+            eprint!("Paste bot token: ");
+            let mut line = String::new();
+            std::io::stdin()
+                .read_line(&mut line)
+                .map_err(|e| format!("failed to read input: {e}"))?;
+            line
+        }
+    };
+    let token = token.trim().to_string();
+    if token.is_empty() {
+        return Err("no token given".into());
+    }
+
+    // Verify against Telegram before storing
+    let me: Value = ureq::get(&api(&token, "getMe"))
+        .call()
+        .map_err(|e| format!("token check failed: {e}"))?
+        .into_json()
+        .map_err(|e| format!("token check bad response: {e}"))?;
+    let username = me
+        .pointer("/result/username")
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("Telegram rejected the token: {me}"))?;
+
+    let dir = config_dir();
+    let token_path = dir.join("token");
+    std::fs::write(&token_path, &token)
+        .map_err(|e| format!("cannot write {}: {e}", token_path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&token_path, std::fs::Permissions::from_mode(0o600));
+    }
+    println!("token ok (bot @{username}), saved to {}", token_path.display());
+
+    match chat_id {
+        Some(id) => {
+            let path = dir.join("chat_id");
+            std::fs::write(&path, id.trim())
+                .map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+            println!("chat_id saved to {}", path.display());
+        }
+        None => println!(
+            "no chat id given — send @{username} any message on Telegram, \
+             it will be auto-discovered on first send"
+        ),
+    }
+    Ok(())
 }
 
 fn status() {
@@ -189,15 +251,20 @@ fn write_msg(out: &mut impl Write, v: &Value) {
 
 fn main() {
     let _ = std::fs::create_dir_all(config_dir());
-    match Cli::parse().command {
-        Command::Mcp => mcp_serve(),
-        Command::Send { message } => match send(&message.join(" ")) {
-            Ok(ok) => println!("{ok}"),
-            Err(e) => {
-                eprintln!("error: {e}");
-                std::process::exit(1);
-            }
-        },
-        Command::Status => status(),
+    let result = match Cli::parse().command {
+        Command::Mcp => {
+            mcp_serve();
+            Ok(())
+        }
+        Command::Auth { token, chat_id } => auth(token, chat_id),
+        Command::Send { message } => send(&message.join(" ")).map(|ok| println!("{ok}")),
+        Command::Status => {
+            status();
+            Ok(())
+        }
+    };
+    if let Err(e) = result {
+        eprintln!("error: {e}");
+        std::process::exit(1);
     }
 }

@@ -7,9 +7,10 @@ stdio server. Zero config files beyond a token: `~/.readybot/token`.
 
 1. Create a bot: message [@BotFather](https://t.me/BotFather) on Telegram,
    send `/newbot`, copy the token.
-2. Store the token:
+2. Store it (verifies the token with Telegram, then writes
+   `~/.readybot/token`):
    ```sh
-   echo '<token>' > ~/.readybot/token
+   readybot auth            # prompts for the token
    ```
 3. Open a chat with your new bot and send it any message (this is how it
    learns your chat id — bots can't message you first).
@@ -22,9 +23,10 @@ stdio server. Zero config files beyond a token: `~/.readybot/token`.
 ## Usage
 
 ```sh
-readybot send <message...>   # send a Telegram message
-readybot status              # check token / chat_id configuration
-readybot mcp                 # run as an MCP stdio server (tool: notify)
+readybot auth [TOKEN] [--chat-id <id>]   # store (and verify) the bot token
+readybot send <message...>               # send a Telegram message
+readybot status                          # check token / chat_id configuration
+readybot mcp                             # run as an MCP stdio server (tool: notify)
 ```
 
 ## MCP registration
