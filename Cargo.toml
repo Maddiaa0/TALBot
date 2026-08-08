@@ -1,9 +1,15 @@
 [package]
-name = "readybot"
+name = "talbot"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+description = "Take A Look bot — minimal Telegram notifier for coding agents, as a CLI and MCP server"
+repository = "https://github.com/Maddiaa0/talbot"
+license = "MIT"
+keywords = ["telegram", "notification", "mcp", "agent", "cli"]
+categories = ["command-line-utilities"]
 
 [dependencies]
+anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 serde_json = "1"
 ureq = { version = "2", features = ["json"] }
