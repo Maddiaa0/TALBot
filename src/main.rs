@@ -1,4 +1,5 @@
 mod config;
+mod hook;
 mod mcp;
 mod question;
 mod telegram;
@@ -35,8 +36,23 @@ enum Command {
     },
     /// Run as an MCP stdio server (tools: notify, ask)
     Mcp,
+    /// Run a coding-agent integration hook
+    Hook {
+        #[command(subcommand)]
+        command: HookCommand,
+    },
     /// Check token / chat_id configuration
     Status,
+}
+
+#[derive(Subcommand)]
+enum HookCommand {
+    /// Handle a Codex PermissionRequest event through Telegram
+    PermissionRequest {
+        /// Maximum time to wait for the Telegram answer
+        #[arg(long, default_value_t = question::DEFAULT_TIMEOUT_SECS)]
+        timeout_seconds: u64,
+    },
 }
 
 fn run(command: Command) -> Result<()> {
@@ -51,6 +67,9 @@ fn run(command: Command) -> Result<()> {
             mcp::serve();
             Ok(())
         }
+        Command::Hook {
+            command: HookCommand::PermissionRequest { timeout_seconds },
+        } => hook::permission_request(timeout_seconds),
         Command::Status => {
             telegram::status();
             Ok(())

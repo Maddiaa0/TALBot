@@ -27,6 +27,24 @@ Set up talbot (a Telegram notifier for coding agents) from this repo:
        args = ["mcp"]
        tool_timeout_sec = 7260
 
+     Also add a user-level PermissionRequest hook to ~/.codex/hooks.json
+     without clobbering existing hooks. Merge this entry if the file exists:
+       {
+         "description": "Forward Codex permission requests to Telegram through TALBot.",
+         "hooks": {
+           "PermissionRequest": [{
+             "hooks": [{
+               "type": "command",
+               "command": "<absolute path to ~/.cargo/bin/talbot> hook permission-request",
+               "timeout": 7260,
+               "statusMessage": "Waiting for Telegram approval"
+             }]
+           }]
+         }
+       }
+     Tell me to restart Codex, run /hooks, review the TALBot command, and trust
+     it. Do not bypass Codex hook trust for normal interactive use.
+
 3. Add the agent instructions: append the "Contacting the user (talbot)"
    block from SNIPPET.md in this repo to my global agent instructions —
    ~/.claude/CLAUDE.md for Claude Code and/or ~/.codex/AGENTS.md for Codex.
@@ -44,6 +62,8 @@ Set up talbot (a Telegram notifier for coding agents) from this repo:
      checking `talbot status`.
    - Confirm interactive replies work by calling the MCP `ask` tool with
      `"Did you receive the TALBot test?"` and choices `"Yes"` and `"No"`.
+   - After the Codex hook is trusted, trigger a harmless permission request and
+     confirm that Telegram's "Allow once" button lets it run.
 
 Report what you changed at each step.
 ```

@@ -37,6 +37,7 @@ talbot auth [TOKEN] [--chat-id <id>]   # store (and verify) the bot token
 talbot send <message...>               # send a Telegram message
 talbot status                          # check token / chat_id configuration
 talbot mcp                             # run as an MCP stdio server (notify, ask)
+talbot hook permission-request         # bridge a Codex approval to Telegram
 ```
 
 ## MCP registration
@@ -59,6 +60,46 @@ tool_timeout_sec = 7260
 The longer tool timeout lets the interactive `ask` tool wait up to two hours
 for a Telegram response. Configure an equivalent timeout in other MCP clients
 if you use interactive questions there.
+
+## Codex permission approvals
+
+TALBot can also forward Codex tool permission requests to Telegram. Add this
+user-level hook in `~/.codex/hooks.json`, using the absolute path to the
+installed binary:
+
+```json
+{
+  "description": "Forward Codex permission requests to Telegram through TALBot.",
+  "hooks": {
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/path/to/.cargo/bin/talbot hook permission-request",
+            "timeout": 7260,
+            "statusMessage": "Waiting for Telegram approval"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Restart Codex, open `/hooks`, and trust the hook after reviewing its command.
+Codex requires this review for non-managed command hooks and requires it again
+whenever the hook definition changes.
+
+When Codex would normally show a local approval prompt, TALBot sends **Allow
+once** and **Deny** buttons to the configured private Telegram chat. An allow
+runs that one operation. A denial, error, competing active TALBot question, or
+two-hour expiry returns a denial to Codex instead of falling back to an
+unattended local prompt. TALBot removes the buttons after an answer or expiry.
+
+The Telegram message includes the tool, working directory, reason, and a
+preview of the tool input. Inputs containing credential-like field names or
+text are hidden or redacted before sending.
 
 ## MCP tools
 
