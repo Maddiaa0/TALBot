@@ -11,7 +11,7 @@ const TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Call a Bot API method and return its `result` payload, surfacing
 /// Telegram's error `description` on failure.
-fn call(token: &str, method: &str, body: Option<Value>) -> Result<Value> {
+pub(crate) fn call(token: &str, method: &str, body: Option<Value>) -> Result<Value> {
     let url = format!("https://api.telegram.org/bot{token}/{method}");
     let result = match body {
         Some(body) => ureq::post(&url).timeout(TIMEOUT).send_json(body),
@@ -48,7 +48,7 @@ pub fn send(message: &str) -> Result<String> {
 
 /// Chat id comes from `~/.talbot/chat_id`, or is discovered from getUpdates
 /// (the most recent person to message the bot) and cached there.
-fn chat_id(token: &str) -> Result<String> {
+pub(crate) fn chat_id(token: &str) -> Result<String> {
     if let Some(id) = config::read_chat_id() {
         return Ok(id);
     }

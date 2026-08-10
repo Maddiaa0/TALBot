@@ -1,5 +1,6 @@
 mod config;
 mod mcp;
+mod question;
 mod telegram;
 
 use anyhow::Result;
@@ -32,7 +33,7 @@ enum Command {
         #[arg(required = true)]
         message: Vec<String>,
     },
-    /// Run as an MCP stdio server (tool: notify)
+    /// Run as an MCP stdio server (tools: notify, ask)
     Mcp,
     /// Check token / chat_id configuration
     Status,

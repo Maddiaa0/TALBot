@@ -6,7 +6,7 @@ agent config, and walk you through connecting your Telegram bot.
 
 > Note: this is a **one-time setup prompt** to paste into a chat — don't put
 > it in `CLAUDE.md`/`AGENTS.md`. The instructions that belong in those files
-> (telling agents *when to notify you*) are in [SNIPPET.md](SNIPPET.md);
+> (telling agents *when to contact you*) are in [SNIPPET.md](SNIPPET.md);
 > step 3 below installs them for you.
 
 ```text
@@ -25,8 +25,9 @@ Set up talbot (a Telegram notifier for coding agents) from this repo:
        [mcp_servers.talbot]
        command = "<absolute path to ~/.cargo/bin/talbot>"
        args = ["mcp"]
+       tool_timeout_sec = 7260
 
-3. Add the agent instructions: append the "Notifying the user (talbot)"
+3. Add the agent instructions: append the "Contacting the user (talbot)"
    block from SNIPPET.md in this repo to my global agent instructions —
    ~/.claude/CLAUDE.md for Claude Code and/or ~/.codex/AGENTS.md for Codex.
    Create the file(s) if they don't exist; don't duplicate the block if it's
@@ -41,6 +42,8 @@ Set up talbot (a Telegram notifier for coding agents) from this repo:
    - Remind me to send my new bot any message on Telegram, then confirm the
      pipeline works by running `talbot send "talbot setup complete"` and
      checking `talbot status`.
+   - Confirm interactive replies work by calling the MCP `ask` tool with
+     `"Did you receive the TALBot test?"` and choices `"Yes"` and `"No"`.
 
 Report what you changed at each step.
 ```

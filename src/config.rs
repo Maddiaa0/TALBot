@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, ensure};
 
-fn dir() -> Result<PathBuf> {
+pub(crate) fn dir() -> Result<PathBuf> {
     let home = std::env::home_dir().context("cannot determine home directory")?;
     Ok(home.join(".talbot"))
 }

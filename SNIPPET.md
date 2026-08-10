@@ -3,7 +3,18 @@
      installation, paste AGENT-SETUP.md into a chat with your agent instead. -->
 
 
-## Notifying the user (talbot)
+## Contacting the user (talbot)
+
+When you need a decision that blocks further work, call the MCP tool `ask`
+from the `talbot` server with a concise question and two to eight short
+choices. Wait for the Telegram answer and continue the same turn with it.
+Prefer this over a local-only question prompt when the user may be away.
+Questions expire after at most two hours. If `ask` reports that a question
+expired, do not assume an answer or continue work that depends on one; end the
+current turn and let the user ask again when ready.
+
+If `ask` is unavailable, send the question with `notify` and use the client's
+normal question flow.
 
 When you finish a task, are ready for the user to review something, or become
 blocked on input only the user can provide, notify them on Telegram before
