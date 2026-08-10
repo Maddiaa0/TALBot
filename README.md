@@ -97,17 +97,23 @@ allow** buttons. An allow runs that one operation. A refusal, error, competing
 active TALBot question, or two-hour expiry blocks the operation instead of
 falling back to an unattended local prompt. TALBot removes the buttons after
 an answer or expiry. After a tap, it immediately dismisses Telegram's loading
-spinner, updates the original question, and sends a short receipt confirming
-that the choice is being returned to Codex. Typing `allow`, `approve`, or `yes`
-also approves a permission request.
+spinner and changes the original message to **🟢 Action answered**, including
+the selected choice. It does not send a redundant follow-up message; the
+original prompt remains the single source of truth. TALBot stores Telegram's
+processed-update position so a later question cannot mistake the old button
+press for a new expired action. Typing `allow`, `approve`, or `yes` also
+approves a permission request.
 
 The Codex tool call that triggered an approval must remain alive while TALBot
 waits. Cancelling that background wait disconnects the old request from Codex;
 issue a fresh permission request rather than treating a late answer as approval.
 
-The Telegram message includes the tool, working directory, reason, and a
-preview of the tool input. Inputs containing credential-like field names or
-text are hidden or redacted before sending.
+Permission messages lead with the decision and the command or change. A visual
+divider separates that important content from the short reason and compact
+folder path. Answered and expired messages likewise put the result first and
+the original request below a divider. Repeated instructions are omitted. Inputs
+containing credential-like field names or text are hidden or redacted before
+sending.
 
 ## MCP tools
 

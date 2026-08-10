@@ -1,6 +1,7 @@
 //! Coding-agent hook integrations.
 
 use std::io::{Read as _, Write as _};
+use std::path::Path;
 
 use anyhow::{Context, Result, ensure};
 use serde_json::{Map, Value, json};
@@ -72,44 +73,72 @@ fn permission_message(event: &Value) -> Result<String> {
     let cwd = event["cwd"].as_str().unwrap_or("unknown");
     let tool_input = &event["tool_input"];
 
-    let mut sections = vec![
-        "Codex needs your okay before it can continue.".to_string(),
-        format!("What it wants to do: {}", action_name(tool_name)),
-        format!("Folder: {}", truncate_chars(cwd, 500)),
-    ];
-
-    if let Some(description) = tool_input.get("description").and_then(Value::as_str) {
-        sections.push(format!(
-            "Why: {}",
-            truncate_chars(&safe_text(description), 500)
-        ));
-    }
-
-    let header = sections.join("\n\n");
-    let input_label = "\n\nDetails:\n";
-    let footer = "\n\nDo you want to allow this once?";
-    let fixed_chars = header.chars().count() + input_label.chars().count() + footer.chars().count();
+    let title = permission_title(tool_name);
+    let input_label = input_label(tool_name);
+    let reason = tool_input
+        .get("description")
+        .and_then(Value::as_str)
+        .map(|description| format!("Why: {}", truncate_chars(&safe_text(description), 300)));
+    let folder = format!("Folder: {}", truncate_chars(&compact_folder(cwd), 300));
+    let logistics = reason
+        .into_iter()
+        .chain([folder])
+        .collect::<Vec<_>>()
+        .join("\n");
+    let prefix = format!("{title}\n\n{input_label}:\n");
+    let suffix = format!("\n\n{}\n{logistics}", question::MESSAGE_DIVIDER);
+    let fixed_chars = prefix.chars().count() + suffix.chars().count();
     let available_input_chars = MAX_QUESTION_CHARS.saturating_sub(fixed_chars);
     let preview = truncate_chars(&input_preview(tool_name, tool_input), available_input_chars);
 
-    Ok(format!("{header}{input_label}{preview}{footer}"))
+    Ok(format!("{prefix}{preview}{suffix}"))
+}
+
+fn permission_title(tool_name: &str) -> String {
+    match tool_name {
+        "Bash" => "Allow this command?".to_string(),
+        "apply_patch" => "Allow these file changes?".to_string(),
+        _ => format!("Allow Codex to {}?", action_name(tool_name)),
+    }
+}
+
+fn input_label(tool_name: &str) -> &'static str {
+    match tool_name {
+        "Bash" => "Command",
+        "apply_patch" => "Change",
+        _ => "Details",
+    }
 }
 
 fn action_name(tool_name: &str) -> String {
     match tool_name {
-        "Bash" => "Run a terminal command".to_string(),
-        "apply_patch" => "Change files".to_string(),
+        "Bash" => "run a terminal command".to_string(),
+        "apply_patch" => "change files".to_string(),
         name if name.starts_with("mcp__") => {
             let mut parts = name.split("__").skip(1);
             let service = parts.next().unwrap_or("another app");
             let action = parts.next().unwrap_or("use a tool");
             format!(
-                "Use {} to {}",
+                "use {} to {}",
                 humanize_name(service),
                 humanize_name(action)
             )
         }
         name => humanize_name(name),
+    }
+}
+
+fn compact_folder(cwd: &str) -> String {
+    let Some(home) = std::env::home_dir() else {
+        return cwd.to_string();
+    };
+    let Ok(relative) = Path::new(cwd).strip_prefix(home) else {
+        return cwd.to_string();
+    };
+    if relative.as_os_str().is_empty() {
+        "~".to_string()
+    } else {
+        format!("~/{}", relative.display())
     }
 }
 
@@ -289,12 +318,12 @@ mod tests {
             }
         });
         let message = permission_message(&event).unwrap();
-        assert!(message.contains("Codex needs your okay before it can continue."));
-        assert!(message.contains("What it wants to do: Run a terminal command"));
+        assert!(message.starts_with("Allow this command?\n\nCommand:\n"));
         assert!(message.contains("Folder: /workspace/project"));
         assert!(message.contains("Why: Remove a disposable test file"));
         assert!(message.contains("rm -f /tmp/result.txt"));
-        assert!(message.ends_with("Do you want to allow this once?"));
+        assert!(!message.contains("Codex needs your okay"));
+        assert!(!message.contains("Tap a button"));
     }
 
     #[test]
@@ -328,11 +357,15 @@ mod tests {
 
     #[test]
     fn gives_tools_plain_names() {
-        assert_eq!(action_name("Bash"), "Run a terminal command");
-        assert_eq!(action_name("apply_patch"), "Change files");
+        assert_eq!(action_name("Bash"), "run a terminal command");
+        assert_eq!(action_name("apply_patch"), "change files");
         assert_eq!(
             action_name("mcp__github__create_issue"),
-            "Use github to create issue"
+            "use github to create issue"
+        );
+        assert_eq!(
+            permission_title("mcp__github__create_issue"),
+            "Allow Codex to use github to create issue?"
         );
     }
 
@@ -347,6 +380,6 @@ mod tests {
         let message = permission_message(&event).unwrap();
         assert_eq!(message.chars().count(), MAX_QUESTION_CHARS);
         assert!(message.contains("… [truncated]"));
-        assert!(message.ends_with("Do you want to allow this once?"));
+        assert!(message.ends_with("Folder: /workspace/project"));
     }
 }

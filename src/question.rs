@@ -16,7 +16,9 @@ pub const DEFAULT_TIMEOUT_SECS: u64 = 2 * 60 * 60;
 pub const MAX_TIMEOUT_SECS: u64 = 2 * 60 * 60;
 const MAX_CHOICES: usize = 8;
 const ACTION_HEADER: &str = "🚨 Action needed";
+const ANSWERED_HEADER: &str = "🟢 Action answered";
 const EXPIRED_HEADER: &str = "🟠 Action expired";
+pub(crate) const MESSAGE_DIVIDER: &str = "──────────";
 const QUESTION_EDIT_ATTEMPTS: usize = 3;
 const QUESTION_EDIT_TIMEOUT: Duration = Duration::from_secs(5);
 const QUESTION_EDIT_RETRY_DELAY: Duration = Duration::from_millis(300);
@@ -102,6 +104,7 @@ pub fn ask(question: &str, choices: &[String], timeout_secs: u64) -> Result<Stri
         let poll_secs = remaining.as_secs().clamp(1, POLL_TIMEOUT_SECS);
         let updates = get_updates(&token, offset, poll_secs)?;
         if let Some(next) = next_offset(&updates) {
+            config::write_update_offset(next)?;
             offset = Some(next);
         }
 
@@ -127,7 +130,7 @@ fn ensure_private_chat(token: &str, chat: &str) -> Result<i64> {
 }
 
 fn pending_offset(token: &str, user_id: i64) -> Result<Option<i64>> {
-    let mut offset = None;
+    let mut offset = config::read_update_offset();
     for _ in 0..100 {
         let updates = get_updates(token, offset, 0)?;
         if updates.is_empty() {
@@ -136,7 +139,10 @@ fn pending_offset(token: &str, user_id: i64) -> Result<Option<i64>> {
         for update in &updates {
             dismiss_stale_callback(token, update, user_id);
         }
-        offset = next_offset(&updates);
+        if let Some(next) = next_offset(&updates) {
+            config::write_update_offset(next)?;
+            offset = Some(next);
+        }
         if updates.len() < 100 {
             return Ok(offset);
         }
@@ -193,15 +199,24 @@ fn edit_question_with_retry(token: &str, chat: &str, message_id: i64, text: &str
         "text": text,
         "reply_markup": { "inline_keyboard": [] }
     });
+    call_question_edit_with_retry(token, "editMessageText", body)
+}
+
+fn remove_question_buttons_with_retry(token: &str, chat: i64, message_id: i64) -> Result<()> {
+    let body = json!({
+        "chat_id": chat,
+        "message_id": message_id,
+        "reply_markup": { "inline_keyboard": [] }
+    });
+    call_question_edit_with_retry(token, "editMessageReplyMarkup", body)
+}
+
+fn call_question_edit_with_retry(token: &str, method: &str, body: Value) -> Result<()> {
     let mut last_error = None;
 
     for attempt in 0..QUESTION_EDIT_ATTEMPTS {
-        match telegram::call_with_timeout(
-            token,
-            "editMessageText",
-            Some(body.clone()),
-            QUESTION_EDIT_TIMEOUT,
-        ) {
+        match telegram::call_with_timeout(token, method, Some(body.clone()), QUESTION_EDIT_TIMEOUT)
+        {
             Ok(_) => return Ok(()),
             Err(error) if error.to_string().contains("message is not modified") => return Ok(()),
             Err(error) => last_error = Some(error),
@@ -230,23 +245,11 @@ fn acknowledge_answer(
             "answerCallbackQuery",
             Some(json!({
                 "callback_query_id": callback_query_id,
-                "text": "✅ Received — sending to Codex now."
+                "text": "🟢 Answer received."
             })),
         )
     {
         eprintln!("talbot: could not dismiss the Telegram button spinner: {error:#}");
-    }
-
-    if let Err(error) = telegram::call(
-        token,
-        "sendMessage",
-        Some(json!({
-            "chat_id": chat,
-            "text": confirmation_text(answer.text()),
-            "reply_parameters": { "message_id": message_id }
-        })),
-    ) {
-        eprintln!("talbot: could not send the Telegram answer receipt: {error:#}");
     }
 
     if let Err(error) = mark_answered(token, chat, message_id, question, answer.text()) {
@@ -276,23 +279,13 @@ pub(crate) fn action_required_text(message: &str) -> String {
 }
 
 fn pending_text(question: &str) -> String {
-    format!(
-        "{}\n\nTap a button below, or reply with your answer.",
-        action_required_text(question)
-    )
+    action_required_text(question)
 }
 
 fn answered_text(question: &str, answer: &str) -> String {
     format!(
-        "{question}\n\n✅ Received: {}\n\nTALBot is sending this to Codex now.",
-        answer_preview(answer)
-    )
-}
-
-fn confirmation_text(answer: &str) -> String {
-    format!(
-        "✅ Received: {}\n\nTALBot is sending this to Codex now.",
-        answer_preview(answer)
+        "{ANSWERED_HEADER}\n\nYou chose: {}\n\n{MESSAGE_DIVIDER}\n{question}",
+        answer_preview(answer),
     )
 }
 
@@ -313,19 +306,7 @@ fn answer_preview(answer: &str) -> String {
 
 fn expired_text(question: &str, wait: &str) -> String {
     format!(
-        "{EXPIRED_HEADER}\n\n{question}\n\n⌛ This timed out after {wait}, so Codex stopped waiting.\n\nGo back to Codex and ask it to try again if you still want to continue."
-    )
-}
-
-fn stale_expired_text(message: &str) -> String {
-    let without_header = message
-        .strip_prefix(&format!("{ACTION_HEADER}\n\n"))
-        .unwrap_or(message);
-    let question = without_header
-        .strip_suffix("\n\nTap a button below, or reply with your answer.")
-        .unwrap_or(without_header);
-    format!(
-        "{EXPIRED_HEADER}\n\n{question}\n\n⌛ Codex is no longer waiting for this answer.\n\nGo back to Codex and ask it to try again if you still want to continue."
+        "{EXPIRED_HEADER}\n\nCodex stopped waiting after {wait}. Go back to Codex to try again.\n\n{MESSAGE_DIVIDER}\n{question}"
     )
 }
 
@@ -365,20 +346,8 @@ fn dismiss_stale_callback(token: &str, update: &Value, user_id: i64) {
     else {
         return;
     };
-    let Some(message) = update
-        .pointer("/callback_query/message/text")
-        .and_then(Value::as_str)
-    else {
-        return;
-    };
-
-    if let Err(error) = edit_question_with_retry(
-        token,
-        &chat.to_string(),
-        message_id,
-        &stale_expired_text(message),
-    ) {
-        eprintln!("talbot: could not close an expired Telegram question: {error:#}");
+    if let Err(error) = remove_question_buttons_with_retry(token, chat, message_id) {
+        eprintln!("talbot: could not remove buttons from an inactive question: {error:#}");
     }
 }
 
@@ -546,7 +515,7 @@ fn abandoned_message_target(contents: &str) -> Option<(String, i64)> {
 }
 
 fn abandoned_text() -> &'static str {
-    "🟠 Action expired\n\n⌛ Codex stopped waiting, so this request is no longer active and nothing was approved.\n\nGo back to Codex and ask it to try again if you still want to continue."
+    "🟠 Action expired\n\nCodex is no longer waiting. Nothing was approved.\n\nGo back to Codex to try again."
 }
 
 #[cfg(unix)]
@@ -653,7 +622,7 @@ mod tests {
     fn marks_messages_that_need_an_answer() {
         assert_eq!(
             pending_text("Deploy the update now?"),
-            "🚨 Action needed\n\nDeploy the update now?\n\nTap a button below, or reply with your answer."
+            "🚨 Action needed\n\nDeploy the update now?"
         );
         assert_eq!(
             action_required_text("🚨 Action needed\n\nAlready marked"),
@@ -662,14 +631,10 @@ mod tests {
     }
 
     #[test]
-    fn removes_the_action_marker_after_an_answer() {
+    fn turns_answered_messages_green() {
         assert_eq!(
             answered_text("Deploy the update now?", "Yes"),
-            "Deploy the update now?\n\n✅ Received: Yes\n\nTALBot is sending this to Codex now."
-        );
-        assert_eq!(
-            confirmation_text("Yes"),
-            "✅ Received: Yes\n\nTALBot is sending this to Codex now."
+            "🟢 Action answered\n\nYou chose: Yes\n\n──────────\nDeploy the update now?"
         );
     }
 
@@ -701,24 +666,14 @@ mod tests {
         );
         assert!(abandoned_message_target("42").is_none());
         assert!(abandoned_text().starts_with("🟠 Action expired"));
-        assert!(abandoned_text().contains("nothing was approved"));
+        assert!(abandoned_text().contains("Nothing was approved"));
     }
 
     #[test]
     fn expired_message_is_unambiguous() {
         assert_eq!(
             expired_text("Deploy now?", "2 hours"),
-            "🟠 Action expired\n\nDeploy now?\n\n⌛ This timed out after 2 hours, so Codex stopped waiting.\n\nGo back to Codex and ask it to try again if you still want to continue."
-        );
-    }
-
-    #[test]
-    fn stale_button_message_becomes_expired() {
-        assert_eq!(
-            stale_expired_text(
-                "🚨 Action needed\n\nDeploy now?\n\nTap a button below, or reply with your answer."
-            ),
-            "🟠 Action expired\n\nDeploy now?\n\n⌛ Codex is no longer waiting for this answer.\n\nGo back to Codex and ask it to try again if you still want to continue."
+            "🟠 Action expired\n\nCodex stopped waiting after 2 hours. Go back to Codex to try again.\n\n──────────\nDeploy now?"
         );
     }
 }

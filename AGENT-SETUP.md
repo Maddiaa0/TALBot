@@ -67,9 +67,10 @@ Set up talbot (a Telegram notifier for coding agents) from this repo:
    - After the Codex hook is trusted, trigger a harmless permission request and
      confirm that the plain-language Telegram message starts with
      `🚨 Action needed`, its "Allow once" button immediately produces a
-     Telegram receipt, and the command runs. Also confirm that replying with
-     the plain word `allow` works. Keep the underlying Codex wait alive until
-     the answer arrives; do not terminate its background cell while testing.
+     green update on the original message without a second receipt message,
+     and the command runs. Also confirm that replying with the plain word
+     `allow` works. Keep the underlying Codex wait alive until the answer
+     arrives; do not terminate its background cell while testing.
 
 Report what you changed at each step.
 ```
