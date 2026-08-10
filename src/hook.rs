@@ -8,9 +8,10 @@ use serde_json::{Map, Value, json};
 use crate::question;
 
 const ALLOW_LABEL: &str = "Allow once";
-const DENY_LABEL: &str = "Deny";
+const DENY_LABEL: &str = "Don't allow";
 const MAX_QUESTION_CHARS: usize = 3000;
-const HIDDEN_INPUT: &str = "[hidden because the input may contain credentials]";
+const HIDDEN_INPUT: &str =
+    "[Hidden because this may contain a password or other private information]";
 
 /// Read a Codex `PermissionRequest` hook event from stdin, collect a Telegram
 /// decision, and write the hook decision to stdout. Any missing or expired
@@ -20,7 +21,7 @@ pub fn permission_request(timeout_secs: u64) -> Result<()> {
         Ok(response) => response,
         Err(error) => {
             eprintln!("talbot permission hook: {error:#}");
-            deny_response("No Telegram approval was received; TALBot denied the request.")
+            deny_response("You did not approve this in Telegram, so TALBot blocked it.")
         }
     };
 
@@ -53,7 +54,7 @@ fn collect_permission(input: &str, timeout_secs: u64) -> Result<Value> {
     if answer == ALLOW_LABEL {
         Ok(allow_response())
     } else {
-        Ok(deny_response("Denied from Telegram via TALBot."))
+        Ok(deny_response("You chose not to allow this in Telegram."))
     }
 }
 
@@ -65,26 +66,48 @@ fn permission_message(event: &Value) -> Result<String> {
     let tool_input = &event["tool_input"];
 
     let mut sections = vec![
-        "Codex is requesting permission.".to_string(),
-        format!("Tool: {tool_name}"),
-        format!("Working directory: {}", truncate_chars(cwd, 500)),
+        "Codex needs your okay before it can continue.".to_string(),
+        format!("What it wants to do: {}", action_name(tool_name)),
+        format!("Folder: {}", truncate_chars(cwd, 500)),
     ];
 
     if let Some(description) = tool_input.get("description").and_then(Value::as_str) {
         sections.push(format!(
-            "Reason: {}",
+            "Why: {}",
             truncate_chars(&safe_text(description), 500)
         ));
     }
 
     let header = sections.join("\n\n");
-    let input_label = "\n\nInput:\n";
-    let footer = "\n\nAllow this operation once?";
+    let input_label = "\n\nDetails:\n";
+    let footer = "\n\nDo you want to allow this once?";
     let fixed_chars = header.chars().count() + input_label.chars().count() + footer.chars().count();
     let available_input_chars = MAX_QUESTION_CHARS.saturating_sub(fixed_chars);
     let preview = truncate_chars(&input_preview(tool_name, tool_input), available_input_chars);
 
     Ok(format!("{header}{input_label}{preview}{footer}"))
+}
+
+fn action_name(tool_name: &str) -> String {
+    match tool_name {
+        "Bash" => "Run a terminal command".to_string(),
+        "apply_patch" => "Change files".to_string(),
+        name if name.starts_with("mcp__") => {
+            let mut parts = name.split("__").skip(1);
+            let service = parts.next().unwrap_or("another app");
+            let action = parts.next().unwrap_or("use a tool");
+            format!(
+                "Use {} to {}",
+                humanize_name(service),
+                humanize_name(action)
+            )
+        }
+        name => humanize_name(name),
+    }
+}
+
+fn humanize_name(name: &str) -> String {
+    name.replace(['_', '-'], " ")
 }
 
 fn input_preview(tool_name: &str, tool_input: &Value) -> String {
@@ -100,7 +123,7 @@ fn input_preview(tool_name: &str, tool_input: &Value) -> String {
 
 fn sanitize_value(value: &Value, key: Option<&str>) -> Value {
     if key.is_some_and(is_sensitive) {
-        return Value::String("[REDACTED]".to_string());
+        return Value::String("[HIDDEN]".to_string());
     }
 
     match value {
@@ -249,10 +272,12 @@ mod tests {
             }
         });
         let message = permission_message(&event).unwrap();
-        assert!(message.contains("Tool: Bash"));
-        assert!(message.contains("Working directory: /workspace/project"));
-        assert!(message.contains("Reason: Remove a disposable test file"));
+        assert!(message.contains("Codex needs your okay before it can continue."));
+        assert!(message.contains("What it wants to do: Run a terminal command"));
+        assert!(message.contains("Folder: /workspace/project"));
+        assert!(message.contains("Why: Remove a disposable test file"));
         assert!(message.contains("rm -f /tmp/result.txt"));
+        assert!(message.ends_with("Do you want to allow this once?"));
     }
 
     #[test]
@@ -281,7 +306,17 @@ mod tests {
         assert!(preview.contains("/tmp/result.txt"));
         assert!(!preview.contains("do-not-leak"));
         assert!(!preview.contains("also-secret"));
-        assert_eq!(preview.matches("[REDACTED]").count(), 2);
+        assert_eq!(preview.matches("[HIDDEN]").count(), 2);
+    }
+
+    #[test]
+    fn gives_tools_plain_names() {
+        assert_eq!(action_name("Bash"), "Run a terminal command");
+        assert_eq!(action_name("apply_patch"), "Change files");
+        assert_eq!(
+            action_name("mcp__github__create_issue"),
+            "Use github to create issue"
+        );
     }
 
     #[test]
@@ -295,6 +330,6 @@ mod tests {
         let message = permission_message(&event).unwrap();
         assert_eq!(message.chars().count(), MAX_QUESTION_CHARS);
         assert!(message.contains("… [truncated]"));
-        assert!(message.ends_with("Allow this operation once?"));
+        assert!(message.ends_with("Do you want to allow this once?"));
     }
 }

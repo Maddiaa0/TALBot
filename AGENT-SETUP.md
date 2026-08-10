@@ -61,9 +61,12 @@ Set up talbot (a Telegram notifier for coding agents) from this repo:
      pipeline works by running `talbot send "talbot setup complete"` and
      checking `talbot status`.
    - Confirm interactive replies work by calling the MCP `ask` tool with
-     `"Did you receive the TALBot test?"` and choices `"Yes"` and `"No"`.
+      `"Did you receive the TALBot test?"` and choices `"Yes"` and `"No"`.
+     Confirm the Telegram message starts with `🚨 Action needed` and uses plain,
+     everyday wording.
    - After the Codex hook is trusted, trigger a harmless permission request and
-     confirm that Telegram's "Allow once" button lets it run.
+     confirm that the plain-language Telegram message starts with
+     `🚨 Action needed` and its "Allow once" button lets it run.
 
 Report what you changed at each step.
 ```

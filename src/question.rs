@@ -14,6 +14,7 @@ const POLL_TIMEOUT_SECS: u64 = 25;
 pub const DEFAULT_TIMEOUT_SECS: u64 = 2 * 60 * 60;
 pub const MAX_TIMEOUT_SECS: u64 = 2 * 60 * 60;
 const MAX_CHOICES: usize = 8;
+const ACTION_HEADER: &str = "🚨 Action needed";
 
 /// Ask a multiple-choice question in the configured private Telegram chat and
 /// wait for the user to tap a button or send a text answer.
@@ -57,7 +58,7 @@ pub fn ask(question: &str, choices: &[String], timeout_secs: u64) -> Result<Stri
         "sendMessage",
         Some(json!({
             "chat_id": chat,
-            "text": format!("{question}\n\nTap a choice below, or send a text reply."),
+            "text": pending_text(question),
             "reply_markup": {
                 "inline_keyboard": choices.iter().enumerate().map(|(index, choice)| {
                     vec![json!({
@@ -102,7 +103,7 @@ pub fn ask(question: &str, choices: &[String], timeout_secs: u64) -> Result<Stri
                     "answerCallbackQuery",
                     Some(json!({
                         "callback_query_id": callback_query_id,
-                        "text": "Answer sent to Codex."
+                        "text": "Got it — sent to Codex."
                     })),
                 );
             }
@@ -197,15 +198,37 @@ fn mark_answered(token: &str, chat: &str, message_id: i64, question: &str, answe
         Some(json!({
             "chat_id": chat,
             "message_id": message_id,
-            "text": format!("{question}\n\n✅ Answered: {answer}"),
+            "text": answered_text(question, answer),
             "reply_markup": { "inline_keyboard": [] }
         })),
     );
 }
 
+/// Add a consistent marker to Telegram messages that need the user's input.
+/// Callers do not need to add the marker themselves.
+pub(crate) fn action_required_text(message: &str) -> String {
+    let message = message.trim();
+    if message.starts_with(ACTION_HEADER) {
+        message.to_string()
+    } else {
+        format!("{ACTION_HEADER}\n\n{message}")
+    }
+}
+
+fn pending_text(question: &str) -> String {
+    format!(
+        "{}\n\nTap a button below, or reply with your answer.",
+        action_required_text(question)
+    )
+}
+
+fn answered_text(question: &str, answer: &str) -> String {
+    format!("{question}\n\n✅ You chose: {answer}")
+}
+
 fn expired_text(question: &str, wait: &str) -> String {
     format!(
-        "{question}\n\n⌛ Expired after {wait} — Codex stopped waiting. Ask again if you still want to answer."
+        "{question}\n\n⌛ No answer after {wait}, so Codex stopped waiting. Send a new message when you're ready."
     )
 }
 
@@ -403,10 +426,30 @@ mod tests {
     }
 
     #[test]
+    fn marks_messages_that_need_an_answer() {
+        assert_eq!(
+            pending_text("Deploy the update now?"),
+            "🚨 Action needed\n\nDeploy the update now?\n\nTap a button below, or reply with your answer."
+        );
+        assert_eq!(
+            action_required_text("🚨 Action needed\n\nAlready marked"),
+            "🚨 Action needed\n\nAlready marked"
+        );
+    }
+
+    #[test]
+    fn removes_the_action_marker_after_an_answer() {
+        assert_eq!(
+            answered_text("Deploy the update now?", "Yes"),
+            "Deploy the update now?\n\n✅ You chose: Yes"
+        );
+    }
+
+    #[test]
     fn expired_message_is_unambiguous() {
         assert_eq!(
             expired_text("Deploy now?", "2 hours"),
-            "Deploy now?\n\n⌛ Expired after 2 hours — Codex stopped waiting. Ask again if you still want to answer."
+            "Deploy now?\n\n⌛ No answer after 2 hours, so Codex stopped waiting. Send a new message when you're ready."
         );
     }
 }

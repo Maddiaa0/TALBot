@@ -91,11 +91,12 @@ Restart Codex, open `/hooks`, and trust the hook after reviewing its command.
 Codex requires this review for non-managed command hooks and requires it again
 whenever the hook definition changes.
 
-When Codex would normally show a local approval prompt, TALBot sends **Allow
-once** and **Deny** buttons to the configured private Telegram chat. An allow
-runs that one operation. A denial, error, competing active TALBot question, or
-two-hour expiry returns a denial to Codex instead of falling back to an
-unattended local prompt. TALBot removes the buttons after an answer or expiry.
+When Codex would normally show a local approval prompt, TALBot sends a plain
+message starting with **🚨 Action needed**, with **Allow once** and **Don't
+allow** buttons. An allow runs that one operation. A refusal, error, competing
+active TALBot question, or two-hour expiry blocks the operation instead of
+falling back to an unattended local prompt. TALBot removes the buttons after
+an answer or expiry.
 
 The Telegram message includes the tool, working directory, reason, and a
 preview of the tool input. Inputs containing credential-like field names or
@@ -103,14 +104,22 @@ text are hidden or redacted before sending.
 
 ## MCP tools
 
-- `notify(message)` sends a one-way Telegram alert.
+- `notify(message, action_required?)` sends a one-way Telegram alert. Set
+  `action_required` to `true` when the user must answer or do something;
+  TALBot adds the **🚨 Action needed** marker. It defaults to `false` for
+  ordinary status and completion messages.
 - `ask(message, choices, timeout_seconds?)` sends two to eight choice buttons
-  and waits for the user to tap one or send a text answer. Only replies from
-  the configured private chat are accepted. One question may be active at a
-  time; the default and maximum wait are two hours. A shorter wait can be
-  requested. When a question expires, TALBot marks the Telegram message as
-  expired and removes its buttons so a late tap cannot be mistaken for an
-  answer.
+  and automatically adds the **🚨 Action needed** marker. It waits for the
+  user to tap one or send a text answer. Only replies from the configured
+  private chat are accepted. One question may be active at a time; the default
+  and maximum wait are two hours. A shorter wait can be requested. When a
+  question expires, TALBot marks the Telegram message as expired and removes
+  its buttons so a late tap cannot be mistaken for an answer.
+
+TALBot's built-in messages use short, everyday wording. Its MCP tool
+descriptions and [agent instructions](SNIPPET.md) tell the calling agent to do
+the same for user-written content. TALBot does not call a second AI model to
+rewrite messages, so this adds no model tokens or extra model latency.
 
 ## Agent instructions
 

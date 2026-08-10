@@ -46,16 +46,23 @@ fn handle(message: &Value) -> Result<Value, Value> {
         "tools/list" => Ok(json!({ "tools": [
             {
                 "name": "notify",
-                "description": "Send a Telegram message to the user. Use this to ping them \
-                    when work is ready for review, when you are blocked, or when a long \
-                    task finishes.",
+                "description": "Send the user a short Telegram message when work is ready, \
+                    you need something from them, or a long task finishes. Write like a \
+                    normal person: use plain everyday language and avoid developer jargon, \
+                    internal names, and acronyms unless the user needs an exact detail.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "message": {
                             "type": "string",
-                            "description": "Short message: what is ready and where \
-                                (e.g. 'PR #42 ready for review')"
+                            "description": "One or two plain sentences saying what happened, \
+                                where to look, and what the user needs to do"
+                        },
+                        "action_required": {
+                            "type": "boolean",
+                            "description": "Set this to true only when the user must answer or \
+                                do something. TALBot will add the action-needed marker.",
+                            "default": false
                         }
                     },
                     "required": ["message"]
@@ -63,17 +70,17 @@ fn handle(message: &Value) -> Result<Value, Value> {
             },
             {
                 "name": "ask",
-                "description": "Ask the user a blocking question in Telegram and wait for \
-                    their answer. Prefer this over a local-only question prompt when the \
-                    user may be away. The user can tap a choice or send a text answer. \
-                    Questions expire after at most two hours; on expiry, stop work that \
-                    depends on the answer.",
+                "description": "Ask the user a question in Telegram and wait for their \
+                    answer. Write it like a short message to a person, using plain everyday \
+                    language with no developer jargon. TALBot adds an action-needed marker. \
+                    The user can tap a choice or reply with text. Questions expire after at \
+                    most two hours; if that happens, stop work that needs the answer.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "message": {
                             "type": "string",
-                            "description": "The concise question to send"
+                            "description": "A short, plain-language question"
                         },
                         "choices": {
                             "type": "array",
@@ -118,9 +125,25 @@ fn notify(message: &Value) -> Value {
     else {
         return tool_error("missing required argument: message");
     };
-    match telegram::send(text) {
+    let action_required = match message.pointer("/params/arguments/action_required") {
+        Some(value) => match value.as_bool() {
+            Some(value) => value,
+            None => return tool_error("action_required must be true or false"),
+        },
+        None => false,
+    };
+    let text = notification_text(text, action_required);
+    match telegram::send(&text) {
         Ok(receipt) => tool_success(&receipt),
         Err(e) => tool_error(&format!("{e:#}")),
+    }
+}
+
+fn notification_text(message: &str, action_required: bool) -> String {
+    if action_required {
+        question::action_required_text(message)
+    } else {
+        message.trim().to_string()
     }
 }
 
@@ -187,6 +210,10 @@ mod tests {
             result.pointer("/tools/1/inputSchema/properties/timeout_seconds/maximum"),
             Some(&json!(7200))
         );
+        assert_eq!(
+            result.pointer("/tools/0/inputSchema/properties/action_required/default"),
+            Some(&json!(false))
+        );
     }
 
     #[test]
@@ -201,6 +228,36 @@ mod tests {
         assert_eq!(
             result.pointer("/content/0/text").and_then(Value::as_str),
             Some("choices must be an array of strings")
+        );
+    }
+
+    #[test]
+    fn marks_notifications_that_need_action() {
+        assert_eq!(
+            notification_text("Please choose a release date.", true),
+            "🚨 Action needed\n\nPlease choose a release date."
+        );
+        assert_eq!(
+            notification_text("The update is ready.", false),
+            "The update is ready."
+        );
+    }
+
+    #[test]
+    fn rejects_an_invalid_action_marker_flag() {
+        let result = tool_call(&json!({
+            "params": {
+                "name": "notify",
+                "arguments": {
+                    "message": "Please choose a release date.",
+                    "action_required": "yes"
+                }
+            }
+        }));
+        assert_eq!(result["isError"], true);
+        assert_eq!(
+            result.pointer("/content/0/text").and_then(Value::as_str),
+            Some("action_required must be true or false")
         );
     }
 }
