@@ -51,11 +51,18 @@ fn collect_permission(input: &str, timeout_secs: u64) -> Result<Value> {
     let choices = vec![ALLOW_LABEL.to_string(), DENY_LABEL.to_string()];
     let answer = question::ask(&message, &choices, timeout_secs)?;
 
-    if answer == ALLOW_LABEL {
+    if is_allow_answer(&answer) {
         Ok(allow_response())
     } else {
         Ok(deny_response("You chose not to allow this in Telegram."))
     }
+}
+
+fn is_allow_answer(answer: &str) -> bool {
+    matches!(
+        answer.trim().to_ascii_lowercase().as_str(),
+        "allow" | "allow once" | "approve" | "approved" | "yes" | "y"
+    )
 }
 
 fn permission_message(event: &Value) -> Result<String> {
@@ -258,6 +265,16 @@ mod tests {
                 }
             })
         );
+    }
+
+    #[test]
+    fn accepts_plain_typed_approval_answers() {
+        for answer in ["Allow once", "allow", "APPROVE", "yes", "y"] {
+            assert!(is_allow_answer(answer), "expected {answer:?} to allow");
+        }
+        for answer in ["Don't allow", "deny", "no", "anything else"] {
+            assert!(!is_allow_answer(answer), "expected {answer:?} to deny");
+        }
     }
 
     #[test]

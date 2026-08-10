@@ -96,7 +96,14 @@ message starting with **🚨 Action needed**, with **Allow once** and **Don't
 allow** buttons. An allow runs that one operation. A refusal, error, competing
 active TALBot question, or two-hour expiry blocks the operation instead of
 falling back to an unattended local prompt. TALBot removes the buttons after
-an answer or expiry.
+an answer or expiry. After a tap, it immediately dismisses Telegram's loading
+spinner, updates the original question, and sends a short receipt confirming
+that the choice is being returned to Codex. Typing `allow`, `approve`, or `yes`
+also approves a permission request.
+
+The Codex tool call that triggered an approval must remain alive while TALBot
+waits. Cancelling that background wait disconnects the old request from Codex;
+issue a fresh permission request rather than treating a late answer as approval.
 
 The Telegram message includes the tool, working directory, reason, and a
 preview of the tool input. Inputs containing credential-like field names or
@@ -115,6 +122,12 @@ text are hidden or redacted before sending.
   and maximum wait are two hours. A shorter wait can be requested. When a
   question expires, TALBot marks the Telegram message as expired and removes
   its buttons so a late tap cannot be mistaken for an answer.
+
+Interactive waits use Telegram's long-poll API with a 10-second idle timeout.
+An answer wakes the request immediately; the timeout is not added response
+latency. These are ordinary HTTPS requests and do not call a model or consume
+model tokens. A 10-second timeout makes at most about 720 idle Telegram
+requests over a full two-hour wait.
 
 TALBot's built-in messages use short, everyday wording. Its MCP tool
 descriptions and [agent instructions](SNIPPET.md) tell the calling agent to do

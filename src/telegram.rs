@@ -21,7 +21,10 @@ pub(crate) fn call(token: &str, method: &str, body: Option<Value>) -> Result<Val
         // Telegram reports errors with a 4xx status but puts the details
         // ("ok": false, "description": …) in the body, so keep reading.
         Ok(response) | Err(ureq::Error::Status(_, response)) => response,
-        Err(e) => return Err(e).with_context(|| format!("{method} request failed")),
+        // ureq transport errors include the full request URL, and Telegram bot
+        // credentials are embedded in that URL. Never attach the raw error to
+        // an error chain that may be printed by a hook or coding agent.
+        Err(ureq::Error::Transport(_)) => bail!("{method} request failed before Telegram replied"),
     };
     let mut payload: Value = response
         .into_json()
@@ -122,4 +125,14 @@ fn prompt(message: &str) -> Result<String> {
         .read_line(&mut line)
         .context("failed to read input")?;
     Ok(line)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn transport_error_wording_cannot_include_a_bot_url() {
+        let message = "getUpdates request failed before Telegram replied";
+        assert!(!message.contains("api.telegram.org/bot"));
+        assert!(!message.contains(':'));
+    }
 }

@@ -3,6 +3,7 @@
 use std::fs::{self, OpenOptions};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
+use std::process::{self, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail, ensure};
@@ -10,7 +11,7 @@ use serde_json::{Value, json};
 
 use crate::{config, telegram};
 
-const POLL_TIMEOUT_SECS: u64 = 25;
+const POLL_TIMEOUT_SECS: u64 = 10;
 pub const DEFAULT_TIMEOUT_SECS: u64 = 2 * 60 * 60;
 pub const MAX_TIMEOUT_SECS: u64 = 2 * 60 * 60;
 const MAX_CHOICES: usize = 8;
@@ -48,7 +49,7 @@ pub fn ask(question: &str, choices: &[String], timeout_secs: u64) -> Result<Stri
     let token = config::read_token()?;
     let chat = telegram::chat_id(&token)?;
     let user_id = ensure_private_chat(&token, &chat)?;
-    let _lock = AskLock::acquire()?;
+    let lock = AskLock::acquire(&token)?;
 
     // Ignore updates that arrived before this question was sent.
     let mut offset = pending_offset(&token)?;
@@ -72,17 +73,27 @@ pub fn ask(question: &str, choices: &[String], timeout_secs: u64) -> Result<Stri
     let message_id = sent["message_id"]
         .as_i64()
         .context("sendMessage response is missing message_id")?;
+    lock.record_question(&chat, message_id)?;
     let deadline = Instant::now() + Duration::from_secs(timeout_secs);
 
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             let wait = wait_label(timeout_secs);
-            expire_question(&token, &chat, message_id, question, &wait)?;
-            bail!(
-                "Telegram question expired after {wait}; the buttons were removed. \
-                 Do not assume an answer or continue work that depends on one"
-            );
+            return match expire_question(&token, &chat, message_id, question, &wait) {
+                Ok(()) => Err(anyhow::anyhow!(
+                    "Telegram question expired after {wait}; the buttons were removed. \
+                     Do not assume an answer or continue work that depends on one"
+                )),
+                Err(error) => {
+                    eprintln!("talbot: could not update the expired Telegram question: {error:#}");
+                    Err(anyhow::anyhow!(
+                        "Telegram question expired after {wait}, but its Telegram message \
+                         could not be updated. The request is inactive; do not assume an \
+                         answer or continue work that depends on one"
+                    ))
+                }
+            };
         }
         let poll_secs = remaining.as_secs().clamp(1, POLL_TIMEOUT_SECS);
         let updates = get_updates(&token, offset, poll_secs)?;
@@ -94,20 +105,7 @@ pub fn ask(question: &str, choices: &[String], timeout_secs: u64) -> Result<Stri
             let Some(answer) = parse_answer(update, user_id, &request_id, &choices) else {
                 continue;
             };
-            if let IncomingAnswer::Choice {
-                callback_query_id, ..
-            } = &answer
-            {
-                let _ = telegram::call(
-                    &token,
-                    "answerCallbackQuery",
-                    Some(json!({
-                        "callback_query_id": callback_query_id,
-                        "text": "Got it — sent to Codex."
-                    })),
-                );
-            }
-            mark_answered(&token, &chat, message_id, question, answer.text());
+            acknowledge_answer(&token, &chat, message_id, question, &answer);
             return Ok(answer.text().to_string());
         }
     }
@@ -191,8 +189,53 @@ fn expire_question(
     Ok(())
 }
 
-fn mark_answered(token: &str, chat: &str, message_id: i64, question: &str, answer: &str) {
-    let _ = telegram::call(
+fn acknowledge_answer(
+    token: &str,
+    chat: &str,
+    message_id: i64,
+    question: &str,
+    answer: &IncomingAnswer,
+) {
+    if let IncomingAnswer::Choice {
+        callback_query_id, ..
+    } = answer
+        && let Err(error) = telegram::call(
+            token,
+            "answerCallbackQuery",
+            Some(json!({
+                "callback_query_id": callback_query_id,
+                "text": "✅ Received — sending to Codex now."
+            })),
+        )
+    {
+        eprintln!("talbot: could not dismiss the Telegram button spinner: {error:#}");
+    }
+
+    if let Err(error) = telegram::call(
+        token,
+        "sendMessage",
+        Some(json!({
+            "chat_id": chat,
+            "text": confirmation_text(answer.text()),
+            "reply_parameters": { "message_id": message_id }
+        })),
+    ) {
+        eprintln!("talbot: could not send the Telegram answer receipt: {error:#}");
+    }
+
+    if let Err(error) = mark_answered(token, chat, message_id, question, answer.text()) {
+        eprintln!("talbot: could not update the answered Telegram question: {error:#}");
+    }
+}
+
+fn mark_answered(
+    token: &str,
+    chat: &str,
+    message_id: i64,
+    question: &str,
+    answer: &str,
+) -> Result<()> {
+    telegram::call(
         token,
         "editMessageText",
         Some(json!({
@@ -201,7 +244,8 @@ fn mark_answered(token: &str, chat: &str, message_id: i64, question: &str, answe
             "text": answered_text(question, answer),
             "reply_markup": { "inline_keyboard": [] }
         })),
-    );
+    )?;
+    Ok(())
 }
 
 /// Add a consistent marker to Telegram messages that need the user's input.
@@ -223,7 +267,32 @@ fn pending_text(question: &str) -> String {
 }
 
 fn answered_text(question: &str, answer: &str) -> String {
-    format!("{question}\n\n✅ You chose: {answer}")
+    format!(
+        "{question}\n\n✅ Received: {}\n\nTALBot is sending this to Codex now.",
+        answer_preview(answer)
+    )
+}
+
+fn confirmation_text(answer: &str) -> String {
+    format!(
+        "✅ Received: {}\n\nTALBot is sending this to Codex now.",
+        answer_preview(answer)
+    )
+}
+
+fn answer_preview(answer: &str) -> String {
+    const MAX_CHARS: usize = 512;
+    if answer.chars().count() <= MAX_CHARS {
+        answer.to_string()
+    } else {
+        let suffix = "…";
+        let keep = MAX_CHARS - suffix.chars().count();
+        format!(
+            "{}{}",
+            answer.chars().take(keep).collect::<String>(),
+            suffix
+        )
+    }
 }
 
 fn expired_text(question: &str, wait: &str) -> String {
@@ -306,7 +375,7 @@ struct AskLock {
 }
 
 impl AskLock {
-    fn acquire() -> Result<Self> {
+    fn acquire(token: &str) -> Result<Self> {
         let path = config::dir()?.join("ask.lock");
         for attempt in 0..2 {
             match OpenOptions::new().write(true).create_new(true).open(&path) {
@@ -316,6 +385,7 @@ impl AskLock {
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                     if attempt == 0 && is_stale(&path) {
+                        mark_abandoned(token, &path);
                         let _ = fs::remove_file(&path);
                         continue;
                     }
@@ -328,6 +398,19 @@ impl AskLock {
         }
         unreachable!()
     }
+
+    fn record_question(&self, chat: &str, message_id: i64) -> Result<()> {
+        fs::write(
+            &self.path,
+            json!({
+                "pid": process::id(),
+                "chat_id": chat,
+                "message_id": message_id
+            })
+            .to_string(),
+        )
+        .with_context(|| format!("cannot update {}", self.path.display()))
+    }
 }
 
 impl Drop for AskLock {
@@ -337,10 +420,79 @@ impl Drop for AskLock {
 }
 
 fn is_stale(path: &Path) -> bool {
+    if let Ok(owner) = fs::read_to_string(path)
+        && let Some(pid) = lock_owner_pid(&owner)
+        && !process_is_alive(pid)
+    {
+        return true;
+    }
+
     fs::metadata(path)
         .and_then(|metadata| metadata.modified())
         .and_then(|modified| modified.elapsed().map_err(std::io::Error::other))
         .is_ok_and(|age| age > Duration::from_secs(MAX_TIMEOUT_SECS + 300))
+}
+
+fn lock_owner_pid(contents: &str) -> Option<u32> {
+    contents.trim().parse::<u32>().ok().or_else(|| {
+        serde_json::from_str::<Value>(contents)
+            .ok()?
+            .get("pid")?
+            .as_u64()?
+            .try_into()
+            .ok()
+    })
+}
+
+fn mark_abandoned(token: &str, path: &Path) {
+    let Some((chat, message_id)) = fs::read_to_string(path)
+        .ok()
+        .and_then(|contents| abandoned_message_target(&contents))
+    else {
+        return;
+    };
+    if let Err(error) = telegram::call(
+        token,
+        "editMessageText",
+        Some(json!({
+            "chat_id": chat,
+            "message_id": message_id,
+            "text": abandoned_text(),
+            "reply_markup": { "inline_keyboard": [] }
+        })),
+    ) {
+        eprintln!("talbot: could not close an abandoned Telegram question: {error:#}");
+    }
+}
+
+fn abandoned_message_target(contents: &str) -> Option<(String, i64)> {
+    let value = serde_json::from_str::<Value>(contents).ok()?;
+    Some((
+        value.get("chat_id")?.as_str()?.to_string(),
+        value.get("message_id")?.as_i64()?,
+    ))
+}
+
+fn abandoned_text() -> &'static str {
+    "⚠️ Codex stopped waiting, so this request is no longer active and nothing was approved. Ask Codex to try again if you still want to allow it."
+}
+
+#[cfg(unix)]
+fn process_is_alive(pid: u32) -> bool {
+    process::Command::new("/bin/kill")
+        .args(["-0", &pid.to_string()])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+#[cfg(not(unix))]
+fn process_is_alive(_pid: u32) -> bool {
+    // Preserve the age-based fallback on platforms where this tiny CLI does
+    // not yet have a portable process-liveness probe.
+    true
 }
 
 #[cfg(test)]
@@ -441,8 +593,42 @@ mod tests {
     fn removes_the_action_marker_after_an_answer() {
         assert_eq!(
             answered_text("Deploy the update now?", "Yes"),
-            "Deploy the update now?\n\n✅ You chose: Yes"
+            "Deploy the update now?\n\n✅ Received: Yes\n\nTALBot is sending this to Codex now."
         );
+        assert_eq!(
+            confirmation_text("Yes"),
+            "✅ Received: Yes\n\nTALBot is sending this to Codex now."
+        );
+    }
+
+    #[test]
+    fn uses_ten_second_telegram_long_polls() {
+        assert_eq!(POLL_TIMEOUT_SECS, 10);
+    }
+
+    #[test]
+    fn recognizes_the_current_process_as_a_live_lock_owner() {
+        assert!(process_is_alive(process::id()));
+    }
+
+    #[test]
+    fn reads_legacy_and_structured_lock_owners() {
+        assert_eq!(lock_owner_pid("42\n"), Some(42));
+        assert_eq!(
+            lock_owner_pid(r#"{"pid":42,"chat_id":"7","message_id":9}"#),
+            Some(42)
+        );
+        assert_eq!(lock_owner_pid("not a lock"), None);
+    }
+
+    #[test]
+    fn recovers_an_abandoned_question_target() {
+        assert_eq!(
+            abandoned_message_target(r#"{"pid":42,"chat_id":"7","message_id":9}"#),
+            Some(("7".to_string(), 9))
+        );
+        assert!(abandoned_message_target("42").is_none());
+        assert!(abandoned_text().contains("nothing was approved"));
     }
 
     #[test]

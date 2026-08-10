@@ -17,6 +17,13 @@ Questions expire after at most two hours. If `ask` reports that a question
 expired, do not assume an answer or continue work that depends on one; end the
 current turn and let the user ask again when ready.
 
+While a TALBot question or Codex permission request is waiting, keep its
+underlying tool call or background wait alive. Use bounded wait calls so you
+can still post occasional status updates, but do not terminate the wait merely
+because the user has not answered yet. Cancelling that wait disconnects the
+Telegram buttons from Codex. If a wait was interrupted, treat the old request
+as inactive and issue a fresh request when the decision is still needed.
+
 If `ask` is unavailable, send the question with `notify`, set
 `action_required` to `true`, and use the client's normal question flow.
 
