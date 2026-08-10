@@ -16,6 +16,10 @@ pub const DEFAULT_TIMEOUT_SECS: u64 = 2 * 60 * 60;
 pub const MAX_TIMEOUT_SECS: u64 = 2 * 60 * 60;
 const MAX_CHOICES: usize = 8;
 const ACTION_HEADER: &str = "🚨 Action needed";
+const EXPIRED_HEADER: &str = "🟠 Action expired";
+const QUESTION_EDIT_ATTEMPTS: usize = 3;
+const QUESTION_EDIT_TIMEOUT: Duration = Duration::from_secs(5);
+const QUESTION_EDIT_RETRY_DELAY: Duration = Duration::from_millis(300);
 
 /// Ask a multiple-choice question in the configured private Telegram chat and
 /// wait for the user to tap a button or send a text answer.
@@ -52,7 +56,7 @@ pub fn ask(question: &str, choices: &[String], timeout_secs: u64) -> Result<Stri
     let lock = AskLock::acquire(&token)?;
 
     // Ignore updates that arrived before this question was sent.
-    let mut offset = pending_offset(&token)?;
+    let mut offset = pending_offset(&token, user_id)?;
     let request_id = request_id();
     let sent = telegram::call(
         &token,
@@ -122,12 +126,15 @@ fn ensure_private_chat(token: &str, chat: &str) -> Result<i64> {
         .context("getChat response is missing a numeric id")
 }
 
-fn pending_offset(token: &str) -> Result<Option<i64>> {
+fn pending_offset(token: &str, user_id: i64) -> Result<Option<i64>> {
     let mut offset = None;
     for _ in 0..100 {
         let updates = get_updates(token, offset, 0)?;
         if updates.is_empty() {
             return Ok(offset);
+        }
+        for update in &updates {
+            dismiss_stale_callback(token, update, user_id);
         }
         offset = next_offset(&updates);
         if updates.len() < 100 {
@@ -176,17 +183,36 @@ fn expire_question(
     question: &str,
     wait: &str,
 ) -> Result<()> {
-    telegram::call(
-        token,
-        "editMessageText",
-        Some(json!({
-            "chat_id": chat,
-            "message_id": message_id,
-            "text": expired_text(question, wait),
-            "reply_markup": { "inline_keyboard": [] }
-        })),
-    )?;
-    Ok(())
+    edit_question_with_retry(token, chat, message_id, &expired_text(question, wait))
+}
+
+fn edit_question_with_retry(token: &str, chat: &str, message_id: i64, text: &str) -> Result<()> {
+    let body = json!({
+        "chat_id": chat,
+        "message_id": message_id,
+        "text": text,
+        "reply_markup": { "inline_keyboard": [] }
+    });
+    let mut last_error = None;
+
+    for attempt in 0..QUESTION_EDIT_ATTEMPTS {
+        match telegram::call_with_timeout(
+            token,
+            "editMessageText",
+            Some(body.clone()),
+            QUESTION_EDIT_TIMEOUT,
+        ) {
+            Ok(_) => return Ok(()),
+            Err(error) if error.to_string().contains("message is not modified") => return Ok(()),
+            Err(error) => last_error = Some(error),
+        }
+
+        if attempt + 1 < QUESTION_EDIT_ATTEMPTS {
+            std::thread::sleep(QUESTION_EDIT_RETRY_DELAY * (attempt as u32 + 1));
+        }
+    }
+
+    Err(last_error.expect("question edit attempted at least once"))
 }
 
 fn acknowledge_answer(
@@ -235,17 +261,7 @@ fn mark_answered(
     question: &str,
     answer: &str,
 ) -> Result<()> {
-    telegram::call(
-        token,
-        "editMessageText",
-        Some(json!({
-            "chat_id": chat,
-            "message_id": message_id,
-            "text": answered_text(question, answer),
-            "reply_markup": { "inline_keyboard": [] }
-        })),
-    )?;
-    Ok(())
+    edit_question_with_retry(token, chat, message_id, &answered_text(question, answer))
 }
 
 /// Add a consistent marker to Telegram messages that need the user's input.
@@ -297,8 +313,73 @@ fn answer_preview(answer: &str) -> String {
 
 fn expired_text(question: &str, wait: &str) -> String {
     format!(
-        "{question}\n\n⌛ No answer after {wait}, so Codex stopped waiting. Send a new message when you're ready."
+        "{EXPIRED_HEADER}\n\n{question}\n\n⌛ This timed out after {wait}, so Codex stopped waiting.\n\nGo back to Codex and ask it to try again if you still want to continue."
     )
+}
+
+fn stale_expired_text(message: &str) -> String {
+    let without_header = message
+        .strip_prefix(&format!("{ACTION_HEADER}\n\n"))
+        .unwrap_or(message);
+    let question = without_header
+        .strip_suffix("\n\nTap a button below, or reply with your answer.")
+        .unwrap_or(without_header);
+    format!(
+        "{EXPIRED_HEADER}\n\n{question}\n\n⌛ Codex is no longer waiting for this answer.\n\nGo back to Codex and ask it to try again if you still want to continue."
+    )
+}
+
+fn dismiss_stale_callback(token: &str, update: &Value, user_id: i64) {
+    if id_at(update, "/callback_query/message/chat/id") != Some(user_id)
+        || id_at(update, "/callback_query/from/id") != Some(user_id)
+    {
+        return;
+    }
+
+    let Some(callback_query_id) = update.pointer("/callback_query/id").and_then(Value::as_str)
+    else {
+        return;
+    };
+
+    if let Err(error) = telegram::call_with_timeout(
+        token,
+        "answerCallbackQuery",
+        Some(json!({
+            "callback_query_id": callback_query_id,
+            "text": "🟠 This action expired. Go back to Codex and try again."
+        })),
+        QUESTION_EDIT_TIMEOUT,
+    ) {
+        eprintln!("talbot: could not dismiss an expired Telegram button: {error:#}");
+    }
+
+    let Some(chat) = update
+        .pointer("/callback_query/message/chat/id")
+        .and_then(Value::as_i64)
+    else {
+        return;
+    };
+    let Some(message_id) = update
+        .pointer("/callback_query/message/message_id")
+        .and_then(Value::as_i64)
+    else {
+        return;
+    };
+    let Some(message) = update
+        .pointer("/callback_query/message/text")
+        .and_then(Value::as_str)
+    else {
+        return;
+    };
+
+    if let Err(error) = edit_question_with_retry(
+        token,
+        &chat.to_string(),
+        message_id,
+        &stale_expired_text(message),
+    ) {
+        eprintln!("talbot: could not close an expired Telegram question: {error:#}");
+    }
 }
 
 fn wait_label(seconds: u64) -> String {
@@ -451,16 +532,7 @@ fn mark_abandoned(token: &str, path: &Path) {
     else {
         return;
     };
-    if let Err(error) = telegram::call(
-        token,
-        "editMessageText",
-        Some(json!({
-            "chat_id": chat,
-            "message_id": message_id,
-            "text": abandoned_text(),
-            "reply_markup": { "inline_keyboard": [] }
-        })),
-    ) {
+    if let Err(error) = edit_question_with_retry(token, &chat, message_id, abandoned_text()) {
         eprintln!("talbot: could not close an abandoned Telegram question: {error:#}");
     }
 }
@@ -474,7 +546,7 @@ fn abandoned_message_target(contents: &str) -> Option<(String, i64)> {
 }
 
 fn abandoned_text() -> &'static str {
-    "⚠️ Codex stopped waiting, so this request is no longer active and nothing was approved. Ask Codex to try again if you still want to allow it."
+    "🟠 Action expired\n\n⌛ Codex stopped waiting, so this request is no longer active and nothing was approved.\n\nGo back to Codex and ask it to try again if you still want to continue."
 }
 
 #[cfg(unix)]
@@ -628,6 +700,7 @@ mod tests {
             Some(("7".to_string(), 9))
         );
         assert!(abandoned_message_target("42").is_none());
+        assert!(abandoned_text().starts_with("🟠 Action expired"));
         assert!(abandoned_text().contains("nothing was approved"));
     }
 
@@ -635,7 +708,17 @@ mod tests {
     fn expired_message_is_unambiguous() {
         assert_eq!(
             expired_text("Deploy now?", "2 hours"),
-            "Deploy now?\n\n⌛ No answer after 2 hours, so Codex stopped waiting. Send a new message when you're ready."
+            "🟠 Action expired\n\nDeploy now?\n\n⌛ This timed out after 2 hours, so Codex stopped waiting.\n\nGo back to Codex and ask it to try again if you still want to continue."
+        );
+    }
+
+    #[test]
+    fn stale_button_message_becomes_expired() {
+        assert_eq!(
+            stale_expired_text(
+                "🚨 Action needed\n\nDeploy now?\n\nTap a button below, or reply with your answer."
+            ),
+            "🟠 Action expired\n\nDeploy now?\n\n⌛ Codex is no longer waiting for this answer.\n\nGo back to Codex and ask it to try again if you still want to continue."
         );
     }
 }

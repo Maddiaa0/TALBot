@@ -12,10 +12,19 @@ const TIMEOUT: Duration = Duration::from_secs(30);
 /// Call a Bot API method and return its `result` payload, surfacing
 /// Telegram's error `description` on failure.
 pub(crate) fn call(token: &str, method: &str, body: Option<Value>) -> Result<Value> {
+    call_with_timeout(token, method, body, TIMEOUT)
+}
+
+pub(crate) fn call_with_timeout(
+    token: &str,
+    method: &str,
+    body: Option<Value>,
+    timeout: Duration,
+) -> Result<Value> {
     let url = format!("https://api.telegram.org/bot{token}/{method}");
     let result = match body {
-        Some(body) => ureq::post(&url).timeout(TIMEOUT).send_json(body),
-        None => ureq::get(&url).timeout(TIMEOUT).call(),
+        Some(body) => ureq::post(&url).timeout(timeout).send_json(body),
+        None => ureq::get(&url).timeout(timeout).call(),
     };
     let response = match result {
         // Telegram reports errors with a 4xx status but puts the details
@@ -108,7 +117,7 @@ pub fn auth(token: Option<String>, chat_id: Option<String>) -> Result<()> {
 pub fn status() {
     match config::read_token() {
         Ok(token) => {
-            println!("token: ok ({}…)", token.get(..8).unwrap_or(&token));
+            println!("token: configured");
             match chat_id(&token) {
                 Ok(id) => println!("chat_id: {id}"),
                 Err(e) => println!("chat_id: {e:#}"),

@@ -120,8 +120,10 @@ text are hidden or redacted before sending.
   user to tap one or send a text answer. Only replies from the configured
   private chat are accepted. One question may be active at a time; the default
   and maximum wait are two hours. A shorter wait can be requested. When a
-  question expires, TALBot marks the Telegram message as expired and removes
-  its buttons so a late tap cannot be mistaken for an answer.
+  question expires, TALBot changes the red action marker to **🟠 Action
+  expired**, tells the user to return to Codex, and removes its buttons so a
+  late tap cannot be mistaken for an answer. The expiry edit is retried when
+  Telegram has a temporary network failure.
 
 Interactive waits use Telegram's long-poll API with a 10-second idle timeout.
 An answer wakes the request immediately; the timeout is not added response
