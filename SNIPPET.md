@@ -5,6 +5,13 @@
 
 ## Contacting the user (talbot)
 
+Before the first TALBot message in a conversation, choose a short title based
+on its main topic, such as `Finance Page`. Keep that title unchanged for the
+rest of the conversation, even if the work expands. Pass the exact same title
+as `conversation_title` in every TALBot `ask` or `notify` call. TALBot puts it
+first in ordinary messages and immediately after the action-status marker when
+there is one.
+
 When you need a decision that blocks further work, call the MCP tool `ask`
 from the `talbot` server with a concise question and two to eight short
 choices. Wait for the Telegram answer and continue the same turn with it.
@@ -33,9 +40,10 @@ ending your turn:
 
 - Preferred: call the MCP tool `notify` from the `talbot` server with a short
   message saying what is ready and where, e.g.
-  `"The login fix is ready in PR #42. Tests passed and it's ready for you to review."`.
+  `{"conversation_title":"Login Fix","message":"The login fix is ready in PR #42. Tests passed and it's ready for you to review."}`.
 - Fallback (if the MCP tool is unavailable): run
-  `talbot send "<same message>"` in the shell.
+  `talbot send --conversation-title "<same title>" "<same message>"` in the
+  shell.
 
 Keep messages to one or two sentences: what happened, where to look, and what
 you need from the user. Write like a normal person and avoid jargon. When the

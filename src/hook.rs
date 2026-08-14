@@ -50,7 +50,7 @@ fn collect_permission(input: &str, timeout_secs: u64) -> Result<Value> {
 
     let message = permission_message(&event)?;
     let choices = vec![ALLOW_LABEL.to_string(), DENY_LABEL.to_string()];
-    let answer = question::ask(&message, &choices, timeout_secs)?;
+    let answer = question::ask(&message, &choices, timeout_secs, None)?;
 
     if is_allow_answer(&answer) {
         Ok(allow_response())

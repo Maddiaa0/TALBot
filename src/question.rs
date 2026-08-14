@@ -9,7 +9,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, bail, ensure};
 use serde_json::{Value, json};
 
-use crate::{config, telegram};
+use crate::{config, conversation, telegram};
 
 const POLL_TIMEOUT_SECS: u64 = 10;
 pub const DEFAULT_TIMEOUT_SECS: u64 = 2 * 60 * 60;
@@ -25,8 +25,14 @@ const QUESTION_EDIT_RETRY_DELAY: Duration = Duration::from_millis(300);
 
 /// Ask a multiple-choice question in the configured private Telegram chat and
 /// wait for the user to tap a button or send a text answer.
-pub fn ask(question: &str, choices: &[String], timeout_secs: u64) -> Result<String> {
+pub fn ask(
+    question: &str,
+    choices: &[String],
+    timeout_secs: u64,
+    conversation_title: Option<&str>,
+) -> Result<String> {
     let question = question.trim();
+    let conversation_title = conversation_title.map(conversation::title).transpose()?;
     ensure!(!question.is_empty(), "question must not be empty");
     ensure!(
         question.chars().count() <= 3000,
@@ -65,7 +71,7 @@ pub fn ask(question: &str, choices: &[String], timeout_secs: u64) -> Result<Stri
         "sendMessage",
         Some(json!({
             "chat_id": chat,
-            "text": pending_text(question),
+            "text": pending_text(question, conversation_title),
             "reply_markup": {
                 "inline_keyboard": choices.iter().enumerate().map(|(index, choice)| {
                     vec![json!({
@@ -86,7 +92,14 @@ pub fn ask(question: &str, choices: &[String], timeout_secs: u64) -> Result<Stri
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             let wait = wait_label(timeout_secs);
-            return match expire_question(&token, &chat, message_id, question, &wait) {
+            return match expire_question(
+                &token,
+                &chat,
+                message_id,
+                question,
+                conversation_title,
+                &wait,
+            ) {
                 Ok(()) => Err(anyhow::anyhow!(
                     "Telegram question expired after {wait}; the buttons were removed. \
                      Do not assume an answer or continue work that depends on one"
@@ -112,7 +125,14 @@ pub fn ask(question: &str, choices: &[String], timeout_secs: u64) -> Result<Stri
             let Some(answer) = parse_answer(update, user_id, &request_id, &choices) else {
                 continue;
             };
-            acknowledge_answer(&token, &chat, message_id, question, &answer);
+            acknowledge_answer(
+                &token,
+                &chat,
+                message_id,
+                question,
+                conversation_title,
+                &answer,
+            );
             return Ok(answer.text().to_string());
         }
     }
@@ -187,9 +207,15 @@ fn expire_question(
     chat: &str,
     message_id: i64,
     question: &str,
+    conversation_title: Option<&str>,
     wait: &str,
 ) -> Result<()> {
-    edit_question_with_retry(token, chat, message_id, &expired_text(question, wait))
+    edit_question_with_retry(
+        token,
+        chat,
+        message_id,
+        &expired_text(question, conversation_title, wait),
+    )
 }
 
 fn edit_question_with_retry(token: &str, chat: &str, message_id: i64, text: &str) -> Result<()> {
@@ -235,6 +261,7 @@ fn acknowledge_answer(
     chat: &str,
     message_id: i64,
     question: &str,
+    conversation_title: Option<&str>,
     answer: &IncomingAnswer,
 ) {
     if let IncomingAnswer::Choice {
@@ -252,7 +279,14 @@ fn acknowledge_answer(
         eprintln!("talbot: could not dismiss the Telegram button spinner: {error:#}");
     }
 
-    if let Err(error) = mark_answered(token, chat, message_id, question, answer.text()) {
+    if let Err(error) = mark_answered(
+        token,
+        chat,
+        message_id,
+        question,
+        conversation_title,
+        answer.text(),
+    ) {
         eprintln!("talbot: could not update the answered Telegram question: {error:#}");
     }
 }
@@ -262,30 +296,38 @@ fn mark_answered(
     chat: &str,
     message_id: i64,
     question: &str,
+    conversation_title: Option<&str>,
     answer: &str,
 ) -> Result<()> {
-    edit_question_with_retry(token, chat, message_id, &answered_text(question, answer))
+    edit_question_with_retry(
+        token,
+        chat,
+        message_id,
+        &answered_text(question, conversation_title, answer),
+    )
 }
 
-/// Add a consistent marker to Telegram messages that need the user's input.
-/// Callers do not need to add the marker themselves.
-pub(crate) fn action_required_text(message: &str) -> String {
-    let message = message.trim();
-    if message.starts_with(ACTION_HEADER) {
-        message.to_string()
-    } else {
-        format!("{ACTION_HEADER}\n\n{message}")
-    }
+pub(crate) fn action_required_text_with_title(title: &str, message: &str) -> String {
+    let message = message
+        .trim()
+        .strip_prefix(ACTION_HEADER)
+        .map(str::trim_start)
+        .unwrap_or_else(|| message.trim());
+    conversation::status_text(ACTION_HEADER, Some(title), message)
 }
 
-fn pending_text(question: &str) -> String {
-    action_required_text(question)
+fn pending_text(question: &str, conversation_title: Option<&str>) -> String {
+    conversation::status_text(ACTION_HEADER, conversation_title, question)
 }
 
-fn answered_text(question: &str, answer: &str) -> String {
-    format!(
-        "{ANSWERED_HEADER}\n\nYou chose: {}\n\n{MESSAGE_DIVIDER}\n{question}",
-        answer_preview(answer),
+fn answered_text(question: &str, conversation_title: Option<&str>, answer: &str) -> String {
+    conversation::status_text(
+        ANSWERED_HEADER,
+        conversation_title,
+        &format!(
+            "You chose: {}\n\n{MESSAGE_DIVIDER}\n{question}",
+            answer_preview(answer),
+        ),
     )
 }
 
@@ -304,9 +346,13 @@ fn answer_preview(answer: &str) -> String {
     }
 }
 
-fn expired_text(question: &str, wait: &str) -> String {
-    format!(
-        "{EXPIRED_HEADER}\n\nCodex stopped waiting after {wait}. Go back to Codex to try again.\n\n{MESSAGE_DIVIDER}\n{question}"
+fn expired_text(question: &str, conversation_title: Option<&str>, wait: &str) -> String {
+    conversation::status_text(
+        EXPIRED_HEADER,
+        conversation_title,
+        &format!(
+            "Codex stopped waiting after {wait}. Go back to Codex to try again.\n\n{MESSAGE_DIVIDER}\n{question}"
+        ),
     )
 }
 
@@ -621,20 +667,32 @@ mod tests {
     #[test]
     fn marks_messages_that_need_an_answer() {
         assert_eq!(
-            pending_text("Deploy the update now?"),
+            pending_text("Deploy the update now?", None),
             "🚨 Action needed\n\nDeploy the update now?"
         );
         assert_eq!(
-            action_required_text("🚨 Action needed\n\nAlready marked"),
-            "🚨 Action needed\n\nAlready marked"
+            action_required_text_with_title("Finance Page", "🚨 Action needed\n\nAlready marked"),
+            "🚨 Action needed\n\nFinance Page\n\nAlready marked"
+        );
+    }
+
+    #[test]
+    fn puts_the_conversation_title_after_the_action_marker() {
+        assert_eq!(
+            pending_text("Deploy the update now?", Some("Finance Page")),
+            "🚨 Action needed\n\nFinance Page\n\nDeploy the update now?"
         );
     }
 
     #[test]
     fn turns_answered_messages_green() {
         assert_eq!(
-            answered_text("Deploy the update now?", "Yes"),
+            answered_text("Deploy the update now?", None, "Yes"),
             "🟢 Action answered\n\nYou chose: Yes\n\n──────────\nDeploy the update now?"
+        );
+        assert_eq!(
+            answered_text("Deploy the update now?", Some("Finance Page"), "Yes"),
+            "🟢 Action answered\n\nFinance Page\n\nYou chose: Yes\n\n──────────\nDeploy the update now?"
         );
     }
 
@@ -672,8 +730,12 @@ mod tests {
     #[test]
     fn expired_message_is_unambiguous() {
         assert_eq!(
-            expired_text("Deploy now?", "2 hours"),
+            expired_text("Deploy now?", None, "2 hours"),
             "🟠 Action expired\n\nCodex stopped waiting after 2 hours. Go back to Codex to try again.\n\n──────────\nDeploy now?"
+        );
+        assert_eq!(
+            expired_text("Deploy now?", Some("Finance Page"), "2 hours"),
+            "🟠 Action expired\n\nFinance Page\n\nCodex stopped waiting after 2 hours. Go back to Codex to try again.\n\n──────────\nDeploy now?"
         );
     }
 }

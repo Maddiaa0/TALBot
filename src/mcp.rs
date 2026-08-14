@@ -1,13 +1,14 @@
 //! Minimal MCP server speaking newline-delimited JSON-RPC 2.0 over stdio.
 //!
-//! Exposes `notify(message)` for one-way alerts and `ask(message, choices)`
-//! for blocking questions answered from Telegram.
+//! Exposes `notify(conversation_title, message)` for one-way alerts and
+//! `ask(conversation_title, message, choices)` for blocking questions answered
+//! from Telegram.
 
 use std::io::{BufRead, Write};
 
 use serde_json::{Value, json};
 
-use crate::{question, telegram};
+use crate::{conversation, question, telegram};
 
 pub fn serve() {
     let stdin = std::io::stdin();
@@ -49,7 +50,9 @@ fn handle(message: &Value) -> Result<Value, Value> {
                 "description": "Send the user a short Telegram message when work is ready, \
                     you need something from them, or a long task finishes. Write like a \
                     normal person: use plain everyday language and avoid developer jargon, \
-                    internal names, and acronyms unless the user needs an exact detail.",
+                    internal names, and acronyms unless the user needs an exact detail. On \
+                    the first TALBot message in a conversation, choose a short title for \
+                    that conversation. Reuse the exact same title in every later call.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -58,6 +61,15 @@ fn handle(message: &Value) -> Result<Value, Value> {
                             "description": "One or two plain sentences saying what happened, \
                                 where to look, and what the user needs to do"
                         },
+                        "conversation_title": {
+                            "type": "string",
+                            "description": "A short title chosen on the first TALBot use \
+                                in this conversation and reused unchanged in every later \
+                                ask or notify call, for example Finance Page",
+                            "minLength": 1,
+                            "maxLength": conversation::MAX_TITLE_CHARS,
+                            "pattern": "^[^\\r\\n]+$"
+                        },
                         "action_required": {
                             "type": "boolean",
                             "description": "Set this to true only when the user must answer or \
@@ -65,7 +77,7 @@ fn handle(message: &Value) -> Result<Value, Value> {
                             "default": false
                         }
                     },
-                    "required": ["message"]
+                    "required": ["conversation_title", "message"]
                 }
             },
             {
@@ -73,6 +85,8 @@ fn handle(message: &Value) -> Result<Value, Value> {
                 "description": "Ask the user a question in Telegram and wait for their \
                     answer. Write it like a short message to a person, using plain everyday \
                     language with no developer jargon. TALBot adds an action-needed marker. \
+                    On the first TALBot message in a conversation, choose a short title and \
+                    reuse the exact same title in every later call. \
                     The user can tap a choice or reply with text. Questions expire after at \
                     most two hours; if that happens, stop work that needs the answer.",
                 "inputSchema": {
@@ -81,6 +95,15 @@ fn handle(message: &Value) -> Result<Value, Value> {
                         "message": {
                             "type": "string",
                             "description": "A short, plain-language question"
+                        },
+                        "conversation_title": {
+                            "type": "string",
+                            "description": "A short title chosen on the first TALBot use \
+                                in this conversation and reused unchanged in every later \
+                                ask or notify call, for example Finance Page",
+                            "minLength": 1,
+                            "maxLength": conversation::MAX_TITLE_CHARS,
+                            "pattern": "^[^\\r\\n]+$"
                         },
                         "choices": {
                             "type": "array",
@@ -97,7 +120,7 @@ fn handle(message: &Value) -> Result<Value, Value> {
                             "default": 7200
                         }
                     },
-                    "required": ["message", "choices"]
+                    "required": ["conversation_title", "message", "choices"]
                 }
             }
         ] })),
@@ -119,6 +142,10 @@ fn tool_call(message: &Value) -> Value {
 }
 
 fn notify(message: &Value) -> Value {
+    let title = match conversation_title(message) {
+        Ok(title) => title,
+        Err(error) => return tool_error(&error),
+    };
     let Some(text) = message
         .pointer("/params/arguments/message")
         .and_then(Value::as_str)
@@ -132,22 +159,26 @@ fn notify(message: &Value) -> Value {
         },
         None => false,
     };
-    let text = notification_text(text, action_required);
+    let text = notification_text(title, text, action_required);
     match telegram::send(&text) {
         Ok(receipt) => tool_success(&receipt),
         Err(e) => tool_error(&format!("{e:#}")),
     }
 }
 
-fn notification_text(message: &str, action_required: bool) -> String {
+fn notification_text(title: &str, message: &str, action_required: bool) -> String {
     if action_required {
-        question::action_required_text(message)
+        question::action_required_text_with_title(title, message)
     } else {
-        message.trim().to_string()
+        conversation::titled_text(title, message)
     }
 }
 
 fn ask(message: &Value) -> Value {
+    let title = match conversation_title(message) {
+        Ok(title) => title,
+        Err(error) => return tool_error(&error),
+    };
     let Some(question) = message
         .pointer("/params/arguments/message")
         .and_then(Value::as_str)
@@ -174,10 +205,20 @@ fn ask(message: &Value) -> Value {
         None => question::DEFAULT_TIMEOUT_SECS,
     };
 
-    match question::ask(question, &choices, timeout_secs) {
+    match question::ask(question, &choices, timeout_secs, Some(title)) {
         Ok(answer) => tool_success(&format!("User answered: {answer}")),
         Err(e) => tool_error(&format!("{e:#}")),
     }
+}
+
+fn conversation_title(message: &Value) -> Result<&str, String> {
+    let value = message
+        .pointer("/params/arguments/conversation_title")
+        .ok_or_else(|| "missing required argument: conversation_title".to_string())?;
+    let value = value
+        .as_str()
+        .ok_or_else(|| "conversation_title must be a string".to_string())?;
+    conversation::title(value).map_err(|error| error.to_string())
 }
 
 fn tool_success(message: &str) -> Value {
@@ -214,6 +255,14 @@ mod tests {
             result.pointer("/tools/0/inputSchema/properties/action_required/default"),
             Some(&json!(false))
         );
+        assert_eq!(
+            result.pointer("/tools/0/inputSchema/properties/conversation_title/maxLength"),
+            Some(&json!(80))
+        );
+        assert_eq!(
+            result.pointer("/tools/1/inputSchema/properties/conversation_title/maxLength"),
+            Some(&json!(80))
+        );
     }
 
     #[test]
@@ -221,7 +270,11 @@ mod tests {
         let result = tool_call(&json!({
             "params": {
                 "name": "ask",
-                "arguments": { "message": "Pick one", "choices": [1, 2] }
+                "arguments": {
+                    "conversation_title": "Finance Page",
+                    "message": "Pick one",
+                    "choices": [1, 2]
+                }
             }
         }));
         assert_eq!(result["isError"], true);
@@ -234,12 +287,12 @@ mod tests {
     #[test]
     fn marks_notifications_that_need_action() {
         assert_eq!(
-            notification_text("Please choose a release date.", true),
-            "🚨 Action needed\n\nPlease choose a release date."
+            notification_text("Finance Page", "Please choose a release date.", true),
+            "🚨 Action needed\n\nFinance Page\n\nPlease choose a release date."
         );
         assert_eq!(
-            notification_text("The update is ready.", false),
-            "The update is ready."
+            notification_text("Finance Page", "The update is ready.", false),
+            "Finance Page\n\nThe update is ready."
         );
     }
 
@@ -249,6 +302,7 @@ mod tests {
             "params": {
                 "name": "notify",
                 "arguments": {
+                    "conversation_title": "Finance Page",
                     "message": "Please choose a release date.",
                     "action_required": "yes"
                 }
@@ -258,6 +312,21 @@ mod tests {
         assert_eq!(
             result.pointer("/content/0/text").and_then(Value::as_str),
             Some("action_required must be true or false")
+        );
+    }
+
+    #[test]
+    fn requires_a_conversation_title() {
+        let result = tool_call(&json!({
+            "params": {
+                "name": "notify",
+                "arguments": { "message": "The update is ready." }
+            }
+        }));
+        assert_eq!(result["isError"], true);
+        assert_eq!(
+            result.pointer("/content/0/text").and_then(Value::as_str),
+            Some("missing required argument: conversation_title")
         );
     }
 }
