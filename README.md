@@ -107,8 +107,9 @@ press for a new expired action. Typing `allow`, `approve`, or `yes` also
 approves a permission request.
 
 The Codex tool call that triggered an approval must remain alive while TALBot
-waits. Cancelling that background wait disconnects the old request from Codex;
-issue a fresh permission request rather than treating a late answer as approval.
+waits. If Codex cancels that wait, TALBot marks the Telegram prompt as
+**🟠 Action cancelled** and removes its buttons. A late answer cannot approve
+the abandoned request.
 
 Permission messages lead with the decision and the command or change. A visual
 divider separates that important content from the short reason and compact
@@ -132,6 +133,12 @@ sending.
   expired**, tells the user to return to Codex, and removes its buttons so a
   late tap cannot be mistaken for an answer. The expiry edit is retried when
   Telegram has a temporary network failure.
+
+An active `ask` does not hold up `notify`, tool discovery, or other MCP
+requests. TALBot keeps reading MCP messages while the question waits for
+Telegram. If the MCP client sends the standard `notifications/cancelled`
+message, TALBot stops the wait, changes the old prompt to **🟠 Action
+cancelled**, and removes its buttons within the current Telegram poll window.
 
 The calling agent chooses a short `conversation_title`, such as `Finance
 Page`, on the first TALBot use in a conversation and sends that exact title on

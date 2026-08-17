@@ -4,7 +4,12 @@
 //! `ask(conversation_title, message, choices)` for blocking questions answered
 //! from Telegram.
 
+use std::collections::HashMap;
 use std::io::{BufRead, Write};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
+};
 
 use serde_json::{Value, json};
 
@@ -12,7 +17,8 @@ use crate::{conversation, question, telegram};
 
 pub fn serve() {
     let stdin = std::io::stdin();
-    let mut stdout = std::io::stdout();
+    let stdout = Arc::new(Mutex::new(std::io::stdout()));
+    let active_requests = ActiveRequests::default();
     for line in stdin.lock().lines() {
         let Ok(line) = line else { break };
         if line.trim().is_empty() {
@@ -21,21 +27,111 @@ pub fn serve() {
         let Ok(message) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
+        if message["method"].as_str() == Some("notifications/cancelled") {
+            active_requests.cancel(&message);
+            continue;
+        }
         // Notifications (no id) need no reply.
         let Some(id) = message.get("id").cloned() else {
             continue;
         };
-        let reply = match handle(&message) {
-            Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
-            Err(error) => json!({ "jsonrpc": "2.0", "id": id, "error": error }),
-        };
-        let _ = writeln!(stdout, "{reply}");
-        let _ = stdout.flush();
+
+        if is_blocking_ask(&message) {
+            let cancelled = active_requests.register(&id);
+            let active_requests = active_requests.clone();
+            let stdout = Arc::clone(&stdout);
+            std::thread::spawn(move || {
+                let reply = reply(&message, &id, &cancelled);
+                active_requests.finish(&id, &cancelled);
+
+                // A cancelled request's result is no longer useful to the MCP client.
+                if !cancelled.load(Ordering::Acquire) {
+                    write_reply(&stdout, &reply);
+                }
+            });
+            continue;
+        }
+
+        let reply = reply(&message, &id, &AtomicBool::new(false));
+        write_reply(&stdout, &reply);
     }
 }
 
+fn is_blocking_ask(message: &Value) -> bool {
+    message["method"].as_str() == Some("tools/call")
+        && message.pointer("/params/name").and_then(Value::as_str) == Some("ask")
+}
+
+fn reply(message: &Value, id: &Value, cancelled: &AtomicBool) -> Value {
+    match handle_with_cancellation(message, cancelled) {
+        Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
+        Err(error) => json!({ "jsonrpc": "2.0", "id": id, "error": error }),
+    }
+}
+
+fn write_reply<W: Write>(stdout: &Arc<Mutex<W>>, reply: &Value) {
+    let mut stdout = stdout.lock().unwrap_or_else(|error| error.into_inner());
+    let _ = writeln!(stdout, "{reply}");
+    let _ = stdout.flush();
+}
+
+#[derive(Clone, Default)]
+struct ActiveRequests {
+    requests: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
+}
+
+impl ActiveRequests {
+    fn register(&self, id: &Value) -> Arc<AtomicBool> {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let mut requests = self
+            .requests
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if let Some(previous) = requests.insert(request_key(id), Arc::clone(&cancelled)) {
+            previous.store(true, Ordering::Release);
+        }
+        cancelled
+    }
+
+    fn cancel(&self, message: &Value) {
+        let Some(id) = message.pointer("/params/requestId") else {
+            return;
+        };
+        let requests = self
+            .requests
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if let Some(cancelled) = requests.get(&request_key(id)) {
+            cancelled.store(true, Ordering::Release);
+        }
+    }
+
+    fn finish(&self, id: &Value, completed: &Arc<AtomicBool>) {
+        let mut requests = self
+            .requests
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let key = request_key(id);
+        if requests
+            .get(&key)
+            .is_some_and(|active| Arc::ptr_eq(active, completed))
+        {
+            requests.remove(&key);
+        }
+    }
+}
+
+fn request_key(id: &Value) -> String {
+    serde_json::to_string(id).expect("JSON-RPC request ids are valid JSON")
+}
+
 /// Dispatch one request, returning either a JSON-RPC `result` or `error`.
+#[cfg(test)]
 fn handle(message: &Value) -> Result<Value, Value> {
+    handle_with_cancellation(message, &AtomicBool::new(false))
+}
+
+fn handle_with_cancellation(message: &Value, cancelled: &AtomicBool) -> Result<Value, Value> {
     match message["method"].as_str().unwrap_or_default() {
         "initialize" => Ok(json!({
             "protocolVersion": message.pointer("/params/protocolVersion")
@@ -124,7 +220,7 @@ fn handle(message: &Value) -> Result<Value, Value> {
                 }
             }
         ] })),
-        "tools/call" => Ok(tool_call(message)),
+        "tools/call" => Ok(tool_call_with_cancellation(message, cancelled)),
         other => Err(json!({
             "code": -32601,
             "message": format!("method not found: {other}")
@@ -132,11 +228,16 @@ fn handle(message: &Value) -> Result<Value, Value> {
     }
 }
 
+#[cfg(test)]
 fn tool_call(message: &Value) -> Value {
+    tool_call_with_cancellation(message, &AtomicBool::new(false))
+}
+
+fn tool_call_with_cancellation(message: &Value, cancelled: &AtomicBool) -> Value {
     let name = message.pointer("/params/name").and_then(Value::as_str);
     match name {
         Some("notify") => notify(message),
-        Some("ask") => ask(message),
+        Some("ask") => ask(message, cancelled),
         _ => tool_error(&format!("unknown tool: {name:?}")),
     }
 }
@@ -174,7 +275,7 @@ fn notification_text(title: &str, message: &str, action_required: bool) -> Strin
     }
 }
 
-fn ask(message: &Value) -> Value {
+fn ask(message: &Value, cancelled: &AtomicBool) -> Value {
     let title = match conversation_title(message) {
         Ok(title) => title,
         Err(error) => return tool_error(&error),
@@ -205,7 +306,9 @@ fn ask(message: &Value) -> Value {
         None => question::DEFAULT_TIMEOUT_SECS,
     };
 
-    match question::ask(question, &choices, timeout_secs, Some(title)) {
+    match question::ask_with_cancellation(question, &choices, timeout_secs, Some(title), || {
+        cancelled.load(Ordering::Acquire)
+    }) {
         Ok(answer) => tool_success(&format!("User answered: {answer}")),
         Err(e) => tool_error(&format!("{e:#}")),
     }
@@ -328,5 +431,49 @@ mod tests {
             result.pointer("/content/0/text").and_then(Value::as_str),
             Some("missing required argument: conversation_title")
         );
+    }
+
+    #[test]
+    fn only_ask_calls_are_dispatched_as_blocking_work() {
+        assert!(is_blocking_ask(&json!({
+            "method": "tools/call",
+            "params": { "name": "ask" }
+        })));
+        assert!(!is_blocking_ask(&json!({
+            "method": "tools/call",
+            "params": { "name": "notify" }
+        })));
+        assert!(!is_blocking_ask(&json!({ "method": "tools/list" })));
+    }
+
+    #[test]
+    fn cancellation_targets_the_matching_in_flight_request() {
+        let active = ActiveRequests::default();
+        let first = active.register(&json!(1));
+        let second = active.register(&json!("2"));
+
+        active.cancel(&json!({
+            "method": "notifications/cancelled",
+            "params": { "requestId": 1, "reason": "Codex moved on" }
+        }));
+
+        assert!(first.load(Ordering::Acquire));
+        assert!(!second.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn finishing_an_old_duplicate_id_does_not_remove_its_replacement() {
+        let active = ActiveRequests::default();
+        let first = active.register(&json!(1));
+        let replacement = active.register(&json!(1));
+
+        assert!(first.load(Ordering::Acquire));
+        active.finish(&json!(1), &first);
+        active.cancel(&json!({
+            "method": "notifications/cancelled",
+            "params": { "requestId": 1 }
+        }));
+
+        assert!(replacement.load(Ordering::Acquire));
     }
 }

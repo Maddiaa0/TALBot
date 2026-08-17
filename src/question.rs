@@ -18,6 +18,7 @@ const MAX_CHOICES: usize = 8;
 const ACTION_HEADER: &str = "🚨 Action needed";
 const ANSWERED_HEADER: &str = "🟢 Action answered";
 const EXPIRED_HEADER: &str = "🟠 Action expired";
+const CANCELLED_HEADER: &str = "🟠 Action cancelled";
 pub(crate) const MESSAGE_DIVIDER: &str = "──────────";
 const QUESTION_EDIT_ATTEMPTS: usize = 3;
 const QUESTION_EDIT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -30,6 +31,18 @@ pub fn ask(
     choices: &[String],
     timeout_secs: u64,
     conversation_title: Option<&str>,
+) -> Result<String> {
+    ask_with_cancellation(question, choices, timeout_secs, conversation_title, || {
+        false
+    })
+}
+
+pub(crate) fn ask_with_cancellation(
+    question: &str,
+    choices: &[String],
+    timeout_secs: u64,
+    conversation_title: Option<&str>,
+    is_cancelled: impl Fn() -> bool,
 ) -> Result<String> {
     let question = question.trim();
     let conversation_title = conversation_title.map(conversation::title).transpose()?;
@@ -57,6 +70,10 @@ pub fn ask(
             .all(|choice| !choice.is_empty() && choice.chars().count() <= 64),
         "each choice must contain between 1 and 64 characters"
     );
+    ensure!(
+        !is_cancelled(),
+        "Telegram question was cancelled before it was sent"
+    );
 
     let token = config::read_token()?;
     let chat = telegram::chat_id(&token)?;
@@ -65,6 +82,10 @@ pub fn ask(
 
     // Ignore updates that arrived before this question was sent.
     let mut offset = pending_offset(&token, user_id)?;
+    ensure!(
+        !is_cancelled(),
+        "Telegram question was cancelled before it was sent"
+    );
     let request_id = request_id();
     let sent = telegram::call(
         &token,
@@ -89,6 +110,9 @@ pub fn ask(
     let deadline = Instant::now() + Duration::from_secs(timeout_secs);
 
     loop {
+        if is_cancelled() {
+            return cancel_question(&token, &chat, message_id, question, conversation_title);
+        }
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             let wait = wait_label(timeout_secs);
@@ -116,6 +140,9 @@ pub fn ask(
         }
         let poll_secs = remaining.as_secs().clamp(1, POLL_TIMEOUT_SECS);
         let updates = get_updates(&token, offset, poll_secs)?;
+        if is_cancelled() {
+            return cancel_question(&token, &chat, message_id, question, conversation_title);
+        }
         if let Some(next) = next_offset(&updates) {
             config::write_update_offset(next)?;
             offset = Some(next);
@@ -125,6 +152,9 @@ pub fn ask(
             let Some(answer) = parse_answer(update, user_id, &request_id, &choices) else {
                 continue;
             };
+            if is_cancelled() {
+                return cancel_question(&token, &chat, message_id, question, conversation_title);
+            }
             acknowledge_answer(
                 &token,
                 &chat,
@@ -134,6 +164,31 @@ pub fn ask(
                 &answer,
             );
             return Ok(answer.text().to_string());
+        }
+    }
+}
+
+fn cancel_question(
+    token: &str,
+    chat: &str,
+    message_id: i64,
+    question: &str,
+    conversation_title: Option<&str>,
+) -> Result<String> {
+    match edit_question_with_retry(
+        token,
+        chat,
+        message_id,
+        &cancelled_text(question, conversation_title),
+    ) {
+        Ok(()) => bail!(
+            "Telegram question was cancelled because Codex stopped waiting; the buttons were removed"
+        ),
+        Err(error) => {
+            eprintln!("talbot: could not update the cancelled Telegram question: {error:#}");
+            bail!(
+                "Telegram question was cancelled because Codex stopped waiting, but its Telegram message could not be updated. The request is inactive"
+            )
         }
     }
 }
@@ -352,6 +407,16 @@ fn expired_text(question: &str, conversation_title: Option<&str>, wait: &str) ->
         conversation_title,
         &format!(
             "Codex stopped waiting after {wait}. Go back to Codex to try again.\n\n{MESSAGE_DIVIDER}\n{question}"
+        ),
+    )
+}
+
+fn cancelled_text(question: &str, conversation_title: Option<&str>) -> String {
+    conversation::status_text(
+        CANCELLED_HEADER,
+        conversation_title,
+        &format!(
+            "Codex moved on, so this question is no longer active. Go back to Codex to try again.\n\n{MESSAGE_DIVIDER}\n{question}"
         ),
     )
 }
@@ -736,6 +801,14 @@ mod tests {
         assert_eq!(
             expired_text("Deploy now?", Some("Finance Page"), "2 hours"),
             "🟠 Action expired\n\nFinance Page\n\nCodex stopped waiting after 2 hours. Go back to Codex to try again.\n\n──────────\nDeploy now?"
+        );
+    }
+
+    #[test]
+    fn cancelled_message_closes_the_old_action() {
+        assert_eq!(
+            cancelled_text("Deploy now?", Some("Finance Page")),
+            "🟠 Action cancelled\n\nFinance Page\n\nCodex moved on, so this question is no longer active. Go back to Codex to try again.\n\n──────────\nDeploy now?"
         );
     }
 }
