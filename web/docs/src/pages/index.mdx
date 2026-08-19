@@ -1,0 +1,27 @@
+---
+description: TALBot is a minimal Telegram notifier that lets coding agents ask for your attention only when it matters.
+---
+
+import { AgentLoop } from "../components/AgentLoop";
+import { PathCards } from "../components/PathCards";
+
+# Your agents should know when to stop
+
+TALBot gives coding agents one tiny tool: send you a Telegram message when work
+is ready, a decision is needed, or something is genuinely blocked. You can walk
+away without leaving another dashboard open.
+
+<AgentLoop />
+
+## Start with the path that fits
+
+<PathCards />
+
+## Small on purpose
+
+TALBot is a Rust CLI and a local stdio MCP server. It has no hosted account,
+browser dashboard, analytics, or TALBot cloud. The notification token remains
+on your machine in `~/.talbot/token`; the public docs service never receives it.
+
+> **Keep the boundary clear.** Agents do the work, TALBot gets your attention,
+> and you decide what happens next.

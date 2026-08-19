@@ -1,0 +1,40 @@
+---
+description: TALBot's trust boundaries, local secret handling, and public documentation service security model.
+---
+
+# Security model
+
+TALBot is public source. Its security comes from narrow capabilities and clear
+trust boundaries, not from hidden implementation details.
+
+## Local notification path
+
+- The Telegram token and chat ID stay under `~/.talbot/` on the user's machine.
+- `talbot auth` verifies the token directly with Telegram.
+- The local stdio MCP server exposes one action: `notify(message)`.
+- TALBot does not turn a notification into permission for any other action.
+
+> **Keep secrets out of logs.** Do not pass a bot token as a command argument in
+> shared shells or automation. Prefer the interactive `talbot auth` prompt.
+
+## Public docs path
+
+The service at `docs.talbot.maddiaa.com` contains public documentation only. Its
+MCP endpoint can list, read, and search those same public pages.
+
+It deliberately has:
+
+- no Telegram token or chat ID
+- no GitHub token or source-repository adapter
+- no write or feedback tool
+- no account, session, or user data
+
+If the docs MCP endpoint is later extended, every new source and tool should be
+treated as a new public capability and reviewed before deployment.
+
+## Reporting a problem
+
+Avoid including secrets in reports. Open a private maintainer contact first if
+a report would disclose a token, personal chat information, or an unpatched
+vulnerability; otherwise use the public
+[issue tracker](https://github.com/Maddiaa0/TALBot/issues).

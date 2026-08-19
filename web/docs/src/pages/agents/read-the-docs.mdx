@@ -1,0 +1,47 @@
+---
+description: Machine-readable TALBot documentation entry points for coding agents and retrieval tools.
+---
+
+# Read these docs as an agent
+
+Every important page has a machine-readable equivalent. Prefer the smallest
+surface that answers the current task.
+
+| Need | Entry point |
+| --- | --- |
+| Discover the docs | [`/llms.txt`](https://docs.talbot.maddiaa.com/llms.txt) |
+| Load the complete corpus | [`/llms-full.txt`](https://docs.talbot.maddiaa.com/llms-full.txt) |
+| Read one page | Append `.md`, for example [`/getting-started.md`](https://docs.talbot.maddiaa.com/getting-started.md) |
+| Follow a setup workflow | [`/skills/talbot-notifications/SKILL.md`](https://docs.talbot.maddiaa.com/skills/talbot-notifications/SKILL.md) |
+| Search and retrieve pages | `https://docs.talbot.maddiaa.com/api/mcp` |
+
+## Docs MCP
+
+The public docs MCP endpoint exposes only three read-only tools:
+
+- `list_pages`
+- `read_page`
+- `search_docs`
+
+Ask an agent to connect it with this prompt:
+
+```text
+Add this read-only documentation MCP server to my AI client:
+https://docs.talbot.maddiaa.com/api/mcp
+```
+
+This is separate from the local `talbot mcp` process. The docs MCP helps agents
+read documentation; the local MCP process provides the `notify(message)` tool.
+
+## Content negotiation
+
+Known AI user agents receive Markdown automatically. Other clients can request
+it explicitly:
+
+```sh
+curl -H 'Accept: text/markdown' https://docs.talbot.maddiaa.com/getting-started
+```
+
+The rendered page and agent-facing Markdown are generated from the same MDX
+source. Custom visuals provide a Markdown fallback and are audited during CI so
+critical instructions do not disappear for agents.
