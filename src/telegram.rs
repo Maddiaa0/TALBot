@@ -11,17 +11,29 @@ const TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Call a Bot API method and return its `result` payload, surfacing
 /// Telegram's error `description` on failure.
-fn call(token: &str, method: &str, body: Option<Value>) -> Result<Value> {
+pub(crate) fn call(token: &str, method: &str, body: Option<Value>) -> Result<Value> {
+    call_with_timeout(token, method, body, TIMEOUT)
+}
+
+pub(crate) fn call_with_timeout(
+    token: &str,
+    method: &str,
+    body: Option<Value>,
+    timeout: Duration,
+) -> Result<Value> {
     let url = format!("https://api.telegram.org/bot{token}/{method}");
     let result = match body {
-        Some(body) => ureq::post(&url).timeout(TIMEOUT).send_json(body),
-        None => ureq::get(&url).timeout(TIMEOUT).call(),
+        Some(body) => ureq::post(&url).timeout(timeout).send_json(body),
+        None => ureq::get(&url).timeout(timeout).call(),
     };
     let response = match result {
         // Telegram reports errors with a 4xx status but puts the details
         // ("ok": false, "description": …) in the body, so keep reading.
         Ok(response) | Err(ureq::Error::Status(_, response)) => response,
-        Err(e) => return Err(e).with_context(|| format!("{method} request failed")),
+        // ureq transport errors include the full request URL, and Telegram bot
+        // credentials are embedded in that URL. Never attach the raw error to
+        // an error chain that may be printed by a hook or coding agent.
+        Err(ureq::Error::Transport(_)) => bail!("{method} request failed before Telegram replied"),
     };
     let mut payload: Value = response
         .into_json()
@@ -48,7 +60,7 @@ pub fn send(message: &str) -> Result<String> {
 
 /// Chat id comes from `~/.talbot/chat_id`, or is discovered from getUpdates
 /// (the most recent person to message the bot) and cached there.
-fn chat_id(token: &str) -> Result<String> {
+pub(crate) fn chat_id(token: &str) -> Result<String> {
     if let Some(id) = config::read_chat_id() {
         return Ok(id);
     }
@@ -105,7 +117,7 @@ pub fn auth(token: Option<String>, chat_id: Option<String>) -> Result<()> {
 pub fn status() {
     match config::read_token() {
         Ok(token) => {
-            println!("token: ok ({}…)", token.get(..8).unwrap_or(&token));
+            println!("token: configured");
             match chat_id(&token) {
                 Ok(id) => println!("chat_id: {id}"),
                 Err(e) => println!("chat_id: {e:#}"),
@@ -122,4 +134,14 @@ fn prompt(message: &str) -> Result<String> {
         .read_line(&mut line)
         .context("failed to read input")?;
     Ok(line)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn transport_error_wording_cannot_include_a_bot_url() {
+        let message = "getUpdates request failed before Telegram replied";
+        assert!(!message.contains("api.telegram.org/bot"));
+        assert!(!message.contains(':'));
+    }
 }
