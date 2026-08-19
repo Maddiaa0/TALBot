@@ -1,0 +1,4 @@
+interface:
+  display_name: "TALBot Notifications"
+  short_description: "Notify users when coding agents need attention"
+  default_prompt: "Use $talbot-notifications to configure completion and blocker notifications for this repository."

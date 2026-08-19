@@ -5,10 +5,24 @@
   "engines": {
     "node": ">=22.13.0"
   },
+  "pnpm": {
+    "overrides": {
+      "esbuild": "0.28.1",
+      "rolldown": "1.2.3"
+    }
+  },
   "scripts": {
-    "build": "pnpm --filter @talbot/landing build",
-    "check": "pnpm --filter @talbot/landing check",
+    "build": "pnpm --filter @talbot/landing build && pnpm --filter @talbot/docs build",
+    "build:docs": "pnpm --filter @talbot/docs build",
+    "build:landing": "pnpm --filter @talbot/landing build",
+    "check": "pnpm --filter @talbot/landing check && pnpm --filter @talbot/docs check",
+    "check:docs": "pnpm --filter @talbot/docs check",
+    "check:landing": "pnpm --filter @talbot/landing check",
     "dev": "pnpm --filter @talbot/landing dev",
-    "start": "pnpm --filter @talbot/landing start"
+    "dev:docs": "pnpm --filter @talbot/docs dev",
+    "dev:landing": "pnpm --filter @talbot/landing dev",
+    "start": "pnpm --filter @talbot/landing start",
+    "start:docs": "pnpm --filter @talbot/docs start",
+    "start:landing": "pnpm --filter @talbot/landing start"
   }
 }
