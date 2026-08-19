@@ -1,0 +1,14 @@
+{
+  "name": "talbot-web",
+  "private": true,
+  "packageManager": "pnpm@10.34.5",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "build": "pnpm --filter @talbot/landing build",
+    "check": "pnpm --filter @talbot/landing check",
+    "dev": "pnpm --filter @talbot/landing dev",
+    "start": "pnpm --filter @talbot/landing start"
+  }
+}

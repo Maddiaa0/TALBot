@@ -7,6 +7,7 @@ repository = "https://github.com/Maddiaa0/talbot"
 license = "MIT"
 keywords = ["telegram", "notification", "mcp", "agent", "cli"]
 categories = ["command-line-utilities"]
+exclude = ["/web"]
 
 [dependencies]
 anyhow = "1"

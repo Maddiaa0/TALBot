@@ -1,0 +1,108 @@
+---
+import "@fontsource/ibm-plex-mono/latin-400.css";
+import "@fontsource/ibm-plex-sans/latin-400.css";
+import "@fontsource/ibm-plex-sans/latin-600.css";
+import "@fontsource/newsreader/latin-300.css";
+import "@fontsource/newsreader/latin-300-italic.css";
+import "../styles/global.css";
+
+const repositoryUrl = "https://github.com/Maddiaa0/TALBot";
+const installCommand = `cargo install --git ${repositoryUrl}`;
+const description =
+  "TALBot sends a Telegram message when your coding agent finishes or needs your attention.";
+// `frame-ancestors` is set in the HTTP header because browsers ignore that
+// directive in a meta-delivered policy.
+const productionMetaCsp =
+  "default-src 'self'; base-uri 'none'; connect-src 'none'; font-src 'self'; form-action 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'";
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#fdfdfb" />
+    <meta name="color-scheme" content="light" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="TALBot — notifications for coding agents" />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content="https://talbot.maddiaa.com/" />
+    <meta property="og:site_name" content="TALBot" />
+    <meta name="twitter:card" content="summary" />
+    <link rel="canonical" href="https://talbot.maddiaa.com/" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    {
+      import.meta.env.PROD && (
+        <meta http-equiv="Content-Security-Policy" content={productionMetaCsp} />
+      )
+    }
+    <title>TALBot — notifications for coding agents</title>
+  </head>
+  <body>
+    <main class="landing" id="main-content">
+      <section class="hero" aria-labelledby="talbot-title">
+        <div class="meadow" aria-hidden="true">
+          <div class="meadow-fallback"></div>
+          <canvas id="meadow-canvas" width="320" height="180"></canvas>
+
+          <div class="device-stage">
+            <div class="phone-shadow"></div>
+            <div class="notifications" id="notifications">
+              <article class="notification">
+                <div class="telegram-mark">T</div>
+                <div class="notification-copy">
+                  <header>
+                    <strong>talbot</strong>
+                    <span>now</span>
+                  </header>
+                  <p>PR #128 ready for review.</p>
+                </div>
+              </article>
+            </div>
+
+            <div class="phone-tilt">
+              <div class="phone-frame">
+                <div class="phone-screen">
+                  <div class="dynamic-island"></div>
+                  <div class="lock-screen-time">
+                    <span id="lock-date">Wednesday, August 19</span>
+                    <strong id="lock-time">09:41</strong>
+                  </div>
+                  <div class="home-indicator"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="identity">
+          <h1 id="talbot-title">talbot</h1>
+          <p class="tagline">stop watching your agents work; it’ll text you</p>
+
+          <div class="actions">
+            <button
+              class="install-command"
+              id="copy-install"
+              type="button"
+              data-command={installCommand}
+              aria-describedby="copy-status"
+            >
+              <span>{installCommand}</span>
+            </button>
+            <span class="copy-status" id="copy-status" aria-live="polite"></span>
+
+            <nav aria-label="Project links">
+              <a href={repositoryUrl}>github</a>
+              <a href={`${repositoryUrl}#readme`}>setup guide</a>
+              <a href={`${repositoryUrl}/blob/master/SNIPPET.md`}>agent snippet</a>
+              <span title="MIT licensed">mit</span>
+            </nav>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="../scripts/landing.ts"></script>
+  </body>
+</html>
