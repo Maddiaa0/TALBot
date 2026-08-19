@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://talbot.maddiaa.com/sitemap.xml

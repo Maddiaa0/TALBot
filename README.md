@@ -4,6 +4,8 @@
 usable as a CLI or as an MCP stdio server. Zero config files beyond a token:
 `~/.talbot/token`.
 
+[Website](https://talbot.maddiaa.com) · [Source](https://github.com/Maddiaa0/TALBot)
+
 Two copy-paste files in this repo — they are **not** interchangeable:
 
 - **[AGENT-SETUP.md](AGENT-SETUP.md)** — a one-time prompt. Paste it into a
@@ -65,3 +67,23 @@ Paste the block in [SNIPPET.md](SNIPPET.md) into your `CLAUDE.md` /
 ```sh
 cargo install --path .   # installs to ~/.cargo/bin/talbot
 ```
+
+## Landing page
+
+The static landing page lives in [`web/landing`](web/landing) and is managed
+from the pnpm workspace in [`web`](web):
+
+```sh
+cd web
+corepack enable
+pnpm install --frozen-lockfile
+pnpm dev
+```
+
+Run `pnpm check && pnpm build` before deployment. The production output is
+written to `web/landing/dist`; Railway serves it with `pnpm start` and the
+security headers in `web/landing/public/serve.json`.
+
+The landing page is fully static. Never place secrets in its source, generated
+assets, or `PUBLIC_*` environment variables: all of them are visible to every
+visitor and in this public repository.
