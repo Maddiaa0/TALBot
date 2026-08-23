@@ -144,7 +144,7 @@ clouds_svg = f'''
     <g><animateTransform attributeName="transform" type="translate" from="-90 24" to="1000 24" dur="42s" begin="-5s" repeatCount="indefinite"/>{cloud(1)}</g>
   </g>'''
 
-svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 620" font-family="Georgia, 'Times New Roman', serif">
+svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="-50 -42 1060 712" font-family="Georgia, 'Times New Roman', serif">
   <style>
     .notif {{
       animation: stack {CYCLE:g}s cubic-bezier(0.2,0.8,0.2,1) infinite both;
@@ -170,7 +170,10 @@ svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 620" font-fam
   </style>
 
   <!-- page background: keep it opaque so dark-mode GitHub doesn't show through -->
-  <rect width="960" height="620" fill="#fdfdfb"/>
+  <rect x="-50" y="-42" width="1060" height="712" fill="#fdfdfb"/>
+
+  <clipPath id="scene"><rect width="960" height="540"/></clipPath>
+  <g clip-path="url(#scene)">
 
   <!-- pixel meadow, rendered once from the landing page's canvas algorithm -->
   <image href="data:image/png;base64,{meadow_b64}" width="960" height="540" style="image-rendering:pixelated" preserveAspectRatio="none"/>
@@ -194,14 +197,14 @@ svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 620" font-fam
 {''.join(notif_cards)}
   </g>
 
-  <!-- wordmark -->
-  <g text-anchor="middle">
-    <text x="480" y="588" font-size="30" letter-spacing="16" fill="#3a3f35">talbot</text>
-    <text x="480" y="612" font-size="13" font-style="italic" fill="#555b4e">stop watching your agents work; it'll text you</text>
   </g>
 
-  <!-- frame -->
-  <rect x="1.5" y="1.5" width="957" height="617" fill="none" stroke="#3a3f35" stroke-width="3"/>
+  <!-- wordmark -->
+  <g text-anchor="middle">
+    <text x="480" y="604" font-size="30" letter-spacing="16" fill="#3a3f35">talbot</text>
+    <text x="480" y="631" font-size="13" font-style="italic" fill="#555b4e">stop watching your agents work; it'll text you</text>
+  </g>
+
 </svg>
 '''
 
