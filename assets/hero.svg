@@ -98,4 +98,7 @@
     <text x="480" y="588" font-size="30" letter-spacing="16" fill="#3a3f35">talbot</text>
     <text x="480" y="612" font-size="13" font-style="italic" fill="#555b4e">stop watching your agents work; it'll text you</text>
   </g>
+
+  <!-- frame -->
+  <rect x="1.5" y="1.5" width="957" height="617" fill="none" stroke="#3a3f35" stroke-width="3"/>
 </svg>
