@@ -1,5 +1,3 @@
-# TALBot
-
 <p align="center">
   <img src="assets/hero.svg" alt="A phone lying in a pixel-art meadow, receiving Telegram notifications from coding agents — talbot: stop watching your agents work; it'll text you" width="820">
 </p>
