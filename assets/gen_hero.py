@@ -169,6 +169,9 @@ svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 620" font-fam
     }}
   </style>
 
+  <!-- page background: keep it opaque so dark-mode GitHub doesn't show through -->
+  <rect width="960" height="620" fill="#fdfdfb"/>
+
   <!-- pixel meadow, rendered once from the landing page's canvas algorithm -->
   <image href="data:image/png;base64,{meadow_b64}" width="960" height="540" style="image-rendering:pixelated" preserveAspectRatio="none"/>
 {clouds_svg}
