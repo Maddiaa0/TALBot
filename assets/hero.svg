@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 620" font-family="Georgia, 'Times New Roman', serif">
+  <style>
+    .notif {
+      animation: stack 24s cubic-bezier(0.2,0.8,0.2,1) infinite both;
+      transform-box: fill-box;
+      transform-origin: 50% 100%;
+      opacity: 0;
+    }
+    @keyframes stack {
+      0%      { transform: translateY(22px) scale(0.94);      opacity: 0; }
+      2.3%    { transform: translateY(0) scale(1);            opacity: 1; }
+      20%     { transform: translateY(0) scale(1);            opacity: 1; }
+      23%     { transform: translateY(-56px) scale(0.95); opacity: 0.78; }
+      40%     { transform: translateY(-56px) scale(0.95); opacity: 0.78; }
+      43%     { transform: translateY(-112px) scale(0.90); opacity: 0.56; }
+      57%     { transform: translateY(-112px) scale(0.90); opacity: 0.56; }
+      60%     { transform: translateY(-126px) scale(0.88); opacity: 0; }
+      100%    { transform: translateY(-126px) scale(0.88); opacity: 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .notif { animation: none; }
+      .notif:first-of-type { opacity: 1; }
+    }
+  </style>
+
+  <!-- pixel meadow, rendered once from the landing page's canvas algorithm -->
+  <image href="data:image/png;base64,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" width="960" height="540" style="image-rendering:pixelated" preserveAspectRatio="none"/>
+
+  <g fill="#ffffff">
+    <g><animateTransform attributeName="transform" type="translate" from="-160 48" to="1000 48" dur="55s" begin="-38s" repeatCount="indefinite"/><rect x="0" y="24" width="156" height="36"/><rect x="24" y="12" width="60" height="24"/><rect x="72" y="0" width="60" height="36"/><rect x="120" y="12" width="36" height="24"/></g>
+    <g><animateTransform attributeName="transform" type="translate" from="-120 114" to="1000 114" dur="80s" begin="-20s" repeatCount="indefinite"/><rect x="0" y="16.8" width="109.2" height="25.2"/><rect x="16.8" y="8.4" width="42" height="16.8"/><rect x="50.4" y="0" width="42" height="25.2"/><rect x="84" y="8.4" width="25.2" height="16.8"/></g>
+    <g><animateTransform attributeName="transform" type="translate" from="-90 24" to="1000 24" dur="42s" begin="-5s" repeatCount="indefinite"/><rect x="0" y="12" width="78" height="18"/><rect x="12" y="6" width="30" height="12"/><rect x="36" y="0" width="30" height="18"/><rect x="60" y="6" width="18" height="12"/></g>
+  </g>
+
+  <!-- phone lying in the meadow (flattened to fake the CSS 3D tilt) -->
+  <g transform="translate(700,455)">
+    <ellipse cx="0" cy="18" rx="120" ry="26" fill="rgba(25,50,30,0.32)"/>
+    <g transform="rotate(-9) scale(1,0.42) rotate(20)">
+      <rect x="-78" y="-150" width="156" height="300" rx="26" fill="rgba(255,255,255,0.22)" stroke="#1a1c20" stroke-width="9"/>
+      <rect x="-78" y="-150" width="156" height="300" rx="26" fill="none" stroke="#35383e" stroke-width="1.5"/>
+      <rect x="-26" y="-138" width="52" height="14" rx="7" fill="#101114"/>
+      <text x="0" y="-92" text-anchor="middle" font-family="-apple-system,'Segoe UI',sans-serif" font-size="10" font-weight="600" fill="#ffffff" opacity="0.92">Wednesday, August 19</text>
+      <text x="0" y="-48" text-anchor="middle" font-family="-apple-system,'Segoe UI',sans-serif" font-size="44" font-weight="600" fill="#ffffff">09:41</text>
+      <rect x="-30" y="136" width="60" height="4" rx="2" fill="rgba(255,255,255,0.9)"/>
+    </g>
+  </g>
+
+  <!-- notification stack floating above the phone -->
+  <g transform="translate(584,330)">
+
+  <g class="notif" style="animation-delay:1.4s">
+      <rect width="252" height="46" rx="12" fill="rgba(250,250,252,0.92)"/>
+      <rect x="9" y="9" width="24" height="24" rx="7" fill="#2AABEE"/>
+      <text x="21" y="26" text-anchor="middle" font-family="-apple-system,'Segoe UI',sans-serif" font-size="13" font-weight="700" fill="#ffffff">T</text>
+      <text x="42" y="17" font-family="-apple-system,'Segoe UI',sans-serif" font-size="9" font-weight="600" fill="#1c1c1e">talbot</text>
+      <text x="242" y="17" text-anchor="end" font-family="-apple-system,'Segoe UI',sans-serif" font-size="8" fill="#6b6b70">now</text>
+      <text y="26" font-family="-apple-system,'Segoe UI',sans-serif" font-size="8.5" fill="#2c2c2e"><tspan x="42" dy="0">✅ Refactor complete — 42 files changed, all</tspan><tspan x="42" dy="12">218 tests passing. Take a look.</tspan></text>
+  </g>
+  <g class="notif" style="animation-delay:6.2s">
+      <rect width="252" height="46" rx="12" fill="rgba(250,250,252,0.92)"/>
+      <rect x="9" y="9" width="24" height="24" rx="7" fill="#2AABEE"/>
+      <text x="21" y="26" text-anchor="middle" font-family="-apple-system,'Segoe UI',sans-serif" font-size="13" font-weight="700" fill="#ffffff">T</text>
+      <text x="42" y="17" font-family="-apple-system,'Segoe UI',sans-serif" font-size="9" font-weight="600" fill="#1c1c1e">talbot</text>
+      <text x="242" y="17" text-anchor="end" font-family="-apple-system,'Segoe UI',sans-serif" font-size="8" fill="#6b6b70">now</text>
+      <text y="26" font-family="-apple-system,'Segoe UI',sans-serif" font-size="8.5" fill="#2c2c2e"><tspan x="42" dy="0">⚠️ Blocked: need your call on the DB</tspan><tspan x="42" dy="12">migration strategy.</tspan></text>
+  </g>
+  <g class="notif" style="animation-delay:11s">
+      <rect width="252" height="46" rx="12" fill="rgba(250,250,252,0.92)"/>
+      <rect x="9" y="9" width="24" height="24" rx="7" fill="#2AABEE"/>
+      <text x="21" y="26" text-anchor="middle" font-family="-apple-system,'Segoe UI',sans-serif" font-size="13" font-weight="700" fill="#ffffff">T</text>
+      <text x="42" y="17" font-family="-apple-system,'Segoe UI',sans-serif" font-size="9" font-weight="600" fill="#1c1c1e">talbot</text>
+      <text x="242" y="17" text-anchor="end" font-family="-apple-system,'Segoe UI',sans-serif" font-size="8" fill="#6b6b70">now</text>
+      <text y="31" font-family="-apple-system,'Segoe UI',sans-serif" font-size="8.5" fill="#2c2c2e"><tspan x="42" dy="0">✅ PR #128 ready for review.</tspan></text>
+  </g>
+  <g class="notif" style="animation-delay:15.8s">
+      <rect width="252" height="46" rx="12" fill="rgba(250,250,252,0.92)"/>
+      <rect x="9" y="9" width="24" height="24" rx="7" fill="#2AABEE"/>
+      <text x="21" y="26" text-anchor="middle" font-family="-apple-system,'Segoe UI',sans-serif" font-size="13" font-weight="700" fill="#ffffff">T</text>
+      <text x="42" y="17" font-family="-apple-system,'Segoe UI',sans-serif" font-size="9" font-weight="600" fill="#1c1c1e">talbot</text>
+      <text x="242" y="17" text-anchor="end" font-family="-apple-system,'Segoe UI',sans-serif" font-size="8" fill="#6b6b70">now</text>
+      <text y="26" font-family="-apple-system,'Segoe UI',sans-serif" font-size="8.5" fill="#2c2c2e"><tspan x="42" dy="0">✅ CI is green on main. Deploy went out</tspan><tspan x="42" dy="12">clean.</tspan></text>
+  </g>
+  <g class="notif" style="animation-delay:20.6s">
+      <rect width="252" height="46" rx="12" fill="rgba(250,250,252,0.92)"/>
+      <rect x="9" y="9" width="24" height="24" rx="7" fill="#2AABEE"/>
+      <text x="21" y="26" text-anchor="middle" font-family="-apple-system,'Segoe UI',sans-serif" font-size="13" font-weight="700" fill="#ffffff">T</text>
+      <text x="42" y="17" font-family="-apple-system,'Segoe UI',sans-serif" font-size="9" font-weight="600" fill="#1c1c1e">talbot</text>
+      <text x="242" y="17" text-anchor="end" font-family="-apple-system,'Segoe UI',sans-serif" font-size="8" fill="#6b6b70">now</text>
+      <text y="26" font-family="-apple-system,'Segoe UI',sans-serif" font-size="8.5" fill="#2c2c2e"><tspan x="42" dy="0">⚠️ Flaky test in auth suite — retried twice,</tspan><tspan x="42" dy="12">needs eyes.</tspan></text>
+  </g>
+  </g>
+
+  <!-- wordmark -->
+  <g text-anchor="middle">
+    <text x="480" y="588" font-size="30" letter-spacing="16" fill="#3a3f35">talbot</text>
+    <text x="480" y="612" font-size="13" font-style="italic" fill="#555b4e">stop watching your agents work; it'll text you</text>
+  </g>
+</svg>
