@@ -1,0 +1,80 @@
+---
+description: Install TALBot, connect a Telegram bot without exposing its token, and send your first notification.
+---
+
+# Quickstart
+
+This route keeps secrets in your terminal and gives TALBot only the access it
+needs to send a message to your own Telegram chat.
+
+## 1. Install TALBot
+
+You need a current Rust toolchain. Install the CLI directly from the public
+repository:
+
+```sh
+cargo install --git https://github.com/Maddiaa0/TALBot
+talbot --help
+```
+
+## 2. Create a Telegram bot
+
+Open [@BotFather](https://t.me/BotFather), send `/newbot`, and follow its
+instructions. Keep the token private.
+
+> **Keep the token private.** Never paste it into an agent chat, issue, log, or
+> repository. Run `talbot auth` yourself so the prompt remains inside your
+> terminal.
+
+```sh
+talbot auth
+```
+
+TALBot verifies the token, then writes it to `~/.talbot/token`.
+
+## 3. Let the bot find your chat
+
+Open a chat with your new bot and send it any message. Telegram bots cannot
+start a conversation, so this one message is how TALBot discovers your chat ID.
+
+```sh
+talbot send "talbot setup complete"
+talbot status
+```
+
+The discovered ID is cached in `~/.talbot/chat_id`.
+
+## 4. Register the MCP server
+
+For Claude Code, register TALBot at user scope. Expand the path before running
+the command if your shell does not do so:
+
+```sh
+claude mcp add --scope user talbot -- ~/.cargo/bin/talbot mcp
+claude mcp list
+```
+
+For Codex, add this to `~/.codex/config.toml` without replacing existing
+configuration:
+
+```toml
+[mcp_servers.talbot]
+command = "/absolute/path/to/.cargo/bin/talbot"
+args = ["mcp"]
+```
+
+## 5. Tell agents when to notify you
+
+Add the notification policy from
+[`SNIPPET.md`](https://github.com/Maddiaa0/TALBot/blob/master/SNIPPET.md) to
+your global `CLAUDE.md` or `AGENTS.md`. It asks agents to notify only when they
+finish, need review, or are blocked on you—not for routine updates.
+
+## What success looks like
+
+Your agent can now call `notify(message)` through the local MCP server. If that
+tool is unavailable, it can fall back to `talbot send "<message>"`.
+
+```text
+auth refactor done — tests passing, ready for review
+```

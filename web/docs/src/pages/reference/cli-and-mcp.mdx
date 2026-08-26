@@ -1,0 +1,45 @@
+---
+description: TALBot command-line reference and the local notify MCP tool contract.
+---
+
+# CLI & MCP reference
+
+## Commands
+
+| Command | Purpose |
+| --- | --- |
+| `talbot auth [TOKEN] [--chat-id <id>]` | Verify and store the bot token; discover or set a chat ID |
+| `talbot send <message...>` | Send a Telegram message |
+| `talbot status` | Check token and chat ID configuration |
+| `talbot mcp` | Run the local stdio MCP server |
+
+Run `talbot <command> --help` for the current arguments and options.
+
+## Local files
+
+| Path | Contents |
+| --- | --- |
+| `~/.talbot/token` | Telegram bot token |
+| `~/.talbot/chat_id` | Cached destination chat ID |
+
+Treat both as private local configuration. Do not commit them, print them into
+agent transcripts, or copy them into hosted service variables.
+
+## MCP tool
+
+`talbot mcp` exposes one tool over stdio:
+
+```text
+notify(message: string)
+```
+
+The message should be short and actionable: what happened, where to look, and
+what decision or review is needed. One or two sentences is usually enough.
+
+```text
+checkout retry fix is ready on branch fix/retries — tests passing, needs review
+```
+
+TALBot is a notification boundary, not an approval mechanism. A message does
+not grant an agent permission to deploy, merge, delete, or change external
+systems.

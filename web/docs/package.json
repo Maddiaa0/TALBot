@@ -1,0 +1,28 @@
+{
+  "name": "@talbot/docs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "build": "vocs build",
+    "check": "vocs markdown-audit",
+    "dev": "vocs dev --host 0.0.0.0",
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@fontsource/ibm-plex-mono": "5.3.0",
+    "@fontsource/ibm-plex-sans": "5.3.0",
+    "@fontsource/newsreader": "5.3.0",
+    "typescript": "6.0.3",
+    "vite": "8.2.0",
+    "vocs": "2.8.5",
+    "waku": "1.0.0-beta.8"
+  }
+}

@@ -1,0 +1,41 @@
+---
+description: A safe one-time prompt that lets a coding agent install TALBot while keeping the Telegram token out of chat.
+---
+
+# Let an agent set up TALBot
+
+From a TALBot checkout, give your coding agent the prompt below. It may install
+the CLI and update local agent configuration, but it must hand the token step
+back to you.
+
+> **Review configuration edits before accepting them.** The agent should append
+> to existing files, never replace them, and should never ask you to disclose
+> the Telegram token in chat.
+
+```text
+Set up TALBot from this repository.
+
+1. Run `cargo install --path .` and verify `talbot --help`.
+2. Register `~/.cargo/bin/talbot mcp` in the coding clients I use. Expand it to
+   an absolute path, preserve existing configuration, and verify the server.
+3. Append the “Notifying the user (talbot)” block from SNIPPET.md to my global
+   CLAUDE.md and/or AGENTS.md. Do not duplicate an existing block.
+4. Do not ask me to paste a Telegram token into chat. Ask me to run
+   `talbot auth` privately in my terminal, then to message my new bot once.
+5. Run `talbot send "talbot setup complete"` and `talbot status` to verify the
+   result. Report every file and setting you changed.
+```
+
+The repository also keeps the longer canonical prompt in
+[`AGENT-SETUP.md`](https://github.com/Maddiaa0/TALBot/blob/master/AGENT-SETUP.md).
+
+## Installable agent skill
+
+Agents that support skills can read the focused TALBot skill directly:
+
+```text
+https://docs.talbot.maddiaa.com/skills/talbot-notifications/SKILL.md
+```
+
+The skill contains declarative instructions only. It does not include or ask an
+agent to download executable scripts.
